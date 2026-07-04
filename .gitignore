@@ -73,3 +73,23 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# --- ДОБАВЛЕНО ---
+
+# Переменные окружения — здесь обычно лежат ключи Firebase и другие секреты.
+# Если этот файл попадёт в открытый GitHub-репозиторий, ключи могут украсть и использовать за ваш счёт.
+.env
+.env.local
+.env.*.local
+
+# google-services.json (Android) и GoogleService-Info.plist (iOS) — 
+# конфигурационные файлы Firebase с реальными данными проекта.
+# Их обычно тоже не публикуют в открытых репозиториях.
+google-services.json
+GoogleService-Info.plist
+
+# Файлы редактора VS Code (настройки конкретно вашей машины, другим разработчикам не нужны)
+.vscode/
+
+# Общий лог-файл на случай ошибок npm, которые не попали под npm-debug.log выше
+*.log
