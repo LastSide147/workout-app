@@ -87,8 +87,11 @@ export default function WorkoutHistoryScreen() {
     <ScrollView style={styles.container}>
       <Text style={styles.title}>История</Text>
 
-      <Calendar markedDates={marked} onDayPress={handleDayPress} />
-
+<Calendar
+  markedDates={marked}
+  onDayPress={handleDayPress}
+  firstDay={1}
+/>
       <View style={styles.legend}>
         <LegendItem color={STATUS_COLORS.workout} label="Тренировка" />
         <LegendItem color={STATUS_COLORS[DAY_STATUS.WEEKEND]} label="Выходной" />
