@@ -93,3 +93,7 @@ GoogleService-Info.plist
 
 # Общий лог-файл на случай ошибок npm, которые не попали под npm-debug.log выше
 *.log
+# Expo
+.expo
+dist/
+web-build/

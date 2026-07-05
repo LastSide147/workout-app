@@ -53,6 +53,11 @@ react {
 
     /* Autolinking */
     autolinkLibrariesWithApp()
+    //
+    // Added by install-expo-modules
+    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", rootDir.getAbsoluteFile().getParentFile().getAbsolutePath(), "android", "absolute"].execute(null, rootDir).text.trim())
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+    bundleCommand = "export:embed"
 }
 
 /**
@@ -116,5 +121,38 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// Временный фикс известной несовместимости React Native Gradle Plugin
+// с проверкой задач в Gradle 9.x (RN 0.85.3 ещё не обновлена под неё).
+// Явно прописываем все обнаруженные "непрямые зависимости" задачи сборки
+// JS-бандла от других задач модуля app — без этого Gradle 9 проваливает сборку.
+// Важно: используем именно dependsOn (а не mustRunAfter для всех задач подряд),
+// потому что это создало бы циклическую зависимость.
+afterEvaluate {
+    tasks.matching { it.name.startsWith("createBundle") && it.name.endsWith("JsAndAssets") }.configureEach { bundleTask ->
+        // Из имени задачи (например, createBundleReleaseJsAndAssets) достаём "Release"
+        def variant = bundleTask.name.replace("createBundle", "").replace("JsAndAssets", "")
+
+        def dependencyTaskNames = [
+            "generateReactNativeEntryPoint",
+            "generateAutolinkingPackageList",
+            "generateAutolinkingNewArchitectureFiles",
+            "generate${variant}BuildConfig",
+            "check${variant}AarMetadata",
+            "generate${variant}ResValues",
+            "configureCMakeRelWithDebInfo[arm64-v8a]",
+            "configureCMakeRelWithDebInfo[armeabi-v7a]",
+            "configureCMakeRelWithDebInfo[x86]",
+            "configureCMakeRelWithDebInfo[x86_64]"
+        ]
+
+        dependencyTaskNames.each { taskName ->
+            def dependencyTask = tasks.findByName(taskName)
+            if (dependencyTask != null) {
+                bundleTask.dependsOn(dependencyTask)
+            }
+        }
     }
 }
