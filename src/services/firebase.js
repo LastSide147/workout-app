@@ -1,10 +1,9 @@
 import auth from '@react-native-firebase/auth';
-
 export async function ensureSignedIn() {
-  const currentUser = auth().currentUser;
-  if (currentUser) {
-    return currentUser.uid;
-  }
-  const result = await auth().signInAnonymously();
-  return result.user.uid;
+  const user = auth().currentUser;
+  return user ? user.uid : null;
+}
+
+export function getCurrentUser() {
+  return auth().currentUser;
 }
