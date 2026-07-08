@@ -3,7 +3,7 @@ import {View, Text, TouchableOpacity, FlatList, StyleSheet} from 'react-native';
 import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
 import {getDateKey, getStartOfWeekKey, getStartOfMonthKey} from '../utils/date';
-import {EXERCISES} from '../constants/exercises';
+import useExercises from '../hooks/useExercises';
 
 const PERIOD = {WEEK: 'week', MONTH: 'month'};
 const todayKey = getDateKey(new Date());
@@ -13,6 +13,10 @@ const monthStartKey = getStartOfMonthKey(new Date());
 export default function StatisticsScreen() {
   const [days, setDays] = useState({});
   const [period, setPeriod] = useState(PERIOD.WEEK);
+
+  // Порядок упражнений в статистике теперь берётся из Firestore
+  // (через хук), а не из статического constants/exercises.js
+  const {exerciseNames, loadingExercises} = useExercises();
 
   useEffect(() => {
     let unsubscribe;
@@ -43,9 +47,9 @@ export default function StatisticsScreen() {
     });
   });
 
- const list = EXERCISES.filter(exercise => totals[exercise] > 0).map(
-    exercise => ({exercise, reps: totals[exercise]}),
-  );
+  const list = exerciseNames
+    .filter(exercise => totals[exercise] > 0)
+    .map(exercise => ({exercise, reps: totals[exercise]}));
 
   return (
     <View style={styles.container}>
@@ -82,7 +86,9 @@ export default function StatisticsScreen() {
         </TouchableOpacity>
       </View>
 
-      {list.length === 0 ? (
+      {loadingExercises ? (
+        <Text style={styles.emptyText}>Загрузка...</Text>
+      ) : list.length === 0 ? (
         <Text style={styles.emptyText}>Нет данных за этот период</Text>
       ) : (
         <FlatList

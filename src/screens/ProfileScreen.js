@@ -1,11 +1,22 @@
-import React from 'react';
-import {View, Text, TouchableOpacity, StyleSheet, Alert} from 'react-native';
+import React, {useState} from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  Modal,
+} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {getCurrentUser} from '../services/firebase';
 import {logout} from '../services/auth';
+import useUserRole from '../hooks/useUserRole';
+import ExerciseManagementScreen from './ExerciseManagementScreen';
 
 export default function ProfileScreen() {
   const user = getCurrentUser();
+  const {isMaster} = useUserRole();
+  const [managementVisible, setManagementVisible] = useState(false);
 
   const handleLogout = () => {
     Alert.alert('Выйти из аккаунта', 'Вы уверены?', [
@@ -15,21 +26,13 @@ export default function ProfileScreen() {
   };
 
   return (
-    // SafeAreaView сам подставляет отступ под статус-бар/чёлку конкретного
-    // устройства (в отличие от фиксированного числа), поэтому кнопка
-    // гарантированно окажется в кликабельной зоне на любом телефоне
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
-        {/* Верхняя строка: иконка выхода справа, без заголовка "Профиль" */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.logoutIconButton}
             onPress={handleLogout}
-            // data-testid-эквивалент в React Native — это testID.
-            // Именно по нему потом в Playwright/автотестах будем находить
-            // кнопку, а не по тексту или расположению на экране
             testID="profile-logout-icon-button">
-            {/* Иконка выхода на Unicode-символе — без сторонних библиотек иконок */}
             <Text style={styles.logoutIcon}>⎋</Text>
           </TouchableOpacity>
         </View>
@@ -37,7 +40,28 @@ export default function ProfileScreen() {
         <Text style={styles.email} testID="profile-user-email">
           {user ? user.email : ''}
         </Text>
+
+        {/* Кнопка видна только пользователю с role: "master" в Firestore.
+            Проверка на сервере (в Firestore Rules) — обязательна отдельно,
+            эта кнопка — только удобство интерфейса, а не защита сама по себе */}
+        {isMaster ? (
+          <TouchableOpacity
+            style={styles.manageButton}
+            onPress={() => setManagementVisible(true)}
+            testID="profile-manage-exercises-button">
+            <Text style={styles.manageButtonText}>Управление упражнениями</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
+
+      <Modal
+        visible={managementVisible}
+        animationType="slide"
+        onRequestClose={() => setManagementVisible(false)}>
+        <ExerciseManagementScreen
+          onClose={() => setManagementVisible(false)}
+        />
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -51,7 +75,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end', // прижимает иконку к правому краю экрана
+    justifyContent: 'flex-end',
     marginBottom: 16,
   },
   logoutIconButton: {
@@ -69,4 +93,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   email: {fontSize: 16, color: '#555', marginBottom: 30},
+
+  manageButton: {
+    borderWidth: 1,
+    borderColor: '#2196F3',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  manageButtonText: {color: '#2196F3', fontWeight: 'bold'},
 });

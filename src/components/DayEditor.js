@@ -7,7 +7,7 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import {EXERCISES} from '../constants/exercises';
+import useExercises from '../hooks/useExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
   getDay,
@@ -26,6 +26,11 @@ export default function DayEditor({
   initialStatus,
   onSaved,
 }) {
+  // Список упражнений теперь приходит из Firestore в реальном времени,
+  // а не из статического constants/exercises.js — поэтому появился
+  // loadingExercises, который нужно дождаться перед отрисовкой списка
+  const {exerciseNames, loadingExercises} = useExercises();
+
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [repsInput, setRepsInput] = useState('');
   const [exerciseReps, setExerciseReps] = useState({});
@@ -218,7 +223,7 @@ export default function DayEditor({
     ]);
   };
 
-  if (!loaded) {
+  if (!loaded || loadingExercises) {
     return null;
   }
 
@@ -229,7 +234,7 @@ export default function DayEditor({
       <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
       <View style={styles.exerciseList}>
-        {EXERCISES.map(exercise => {
+        {exerciseNames.map(exercise => {
           const isSelected = selectedExercise === exercise;
           const totalReps = exerciseReps[exercise];
 
@@ -410,8 +415,6 @@ const styles = StyleSheet.create({
   statusButtonText: {color: '#333', fontSize: 14},
   statusButtonTextActive: {color: '#fff'},
 
-  // Отдельный визуальный блок для удаления — линия-разделитель
-  // и увеличенный отступ, чтобы кнопка явно не путалась с остальными
   deleteSection: {marginTop: 40},
   divider: {height: 1, backgroundColor: '#eee', marginBottom: 20},
   deleteButton: {
