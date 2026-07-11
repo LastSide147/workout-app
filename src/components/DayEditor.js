@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -22,11 +22,12 @@ import {
   deleteDayRating,
   upsertProfileNickname,
 } from '../services/ratings';
+import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
 
 const MAX_REPS = 5000;
 
-export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
+export default function DayEditor({userId, dateKey, onSaved}) {
   const {exerciseNames, exerciseCoefficients, loadingExercises} =
     useExercises();
 
@@ -37,6 +38,19 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+
+  // Отвечает за то, показывать ли уже сохранённые упражнения как
+  // просто список (по умолчанию) или как форму редактирования —
+  // управляется кнопкой "Редактировать" ниже, ВНУТРИ этого же
+  // компонента, а не снаружи.
+  const [isEditingExercises, setIsEditingExercises] = useState(false);
+
+  // Список упражнений, которые реально сохранены в базе на момент
+  // последней загрузки/сохранения дня. Нужен, чтобы при следующем
+  // сохранении понять, какие записи удалить, БЕЗ повторного чтения
+  // с сервера (см. комментарий в services/workoutDays.js) — это и
+  // есть ключевое исправление зависания сохранения офлайн.
+  const originalNamesRef = useRef([]);
 
   useEffect(() => {
     if (userId) {
@@ -51,6 +65,7 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
     setRepsInput('');
     setLoaded(false);
     setIsDirty(false);
+    setIsEditingExercises(false);
 
     async function loadData() {
       const entries = await getDayEntries(userId, dateKey);
@@ -59,20 +74,17 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
         repsMap[item.exercise] = item.reps;
       });
       setExerciseReps(repsMap);
+      originalNamesRef.current = entries.map(item => item.exercise);
 
-      if (initialStatus !== undefined) {
-        setDayStatus(initialStatus || null);
-      } else {
-        const day = await getDay(userId, dateKey);
-        setDayStatus(day ? day.status || null : null);
-      }
+      const day = await getDay(userId, dateKey);
+      setDayStatus(day ? day.status || null : null);
       setLoaded(true);
     }
 
     if (userId) {
       loadData();
     }
-  }, [dateKey, userId, initialStatus]);
+  }, [dateKey, userId]);
 
   const handleSelectExercise = exercise => {
     if (selectedExercise === exercise) {
@@ -106,7 +118,6 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
       return;
     }
 
-    setDayStatus(null);
     setIsDirty(true);
 
     setExerciseReps(prev => {
@@ -131,18 +142,35 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
 
   const hasReps = Object.keys(exerciseReps).length > 0;
 
+  // --- Статус дня: доступен всегда, независимо от isEditingExercises ---
+
   const applyStatus = async status => {
     const newStatus = dayStatus === status ? null : status;
     setDayStatus(newStatus);
     setExerciseReps({});
+    setIsEditingExercises(false);
 
     try {
-      if (newStatus === null) {
-        await clearDay(userId, dateKey);
-      } else {
-        await setStatusForDate(userId, dateKey, newStatus);
+      const writePromise =
+        newStatus === null
+          ? clearDay(userId, dateKey, originalNamesRef.current)
+          : setStatusForDate(userId, dateKey, newStatus, originalNamesRef.current);
+
+      // Не ждём подтверждение сервера бесконечно — офлайн запись
+      // всё равно уже применена локально (подробности в
+      // services/offlineSync.js).
+      const result = await saveWithOfflineFallback(writePromise);
+      if (result.error) {
+        throw result.error;
       }
-      await deleteDayRating(userId, dateKey);
+      originalNamesRef.current = [];
+
+      // Рейтинг влияет только на общую таблицу лидеров (ей и так
+      // нужен интернет) — удаляем его в фоне, не блокируя экран.
+      deleteDayRating(userId, dateKey).catch(error =>
+        console.error('Удаление рейтинга дня отложено до сети:', error),
+      );
+
       setIsDirty(false);
       if (onSaved) {
         onSaved();
@@ -155,7 +183,7 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
   const handleSetStatus = status => {
     if (hasReps) {
       const message =
-        'Введённые повторения будут удалены, а день отмечен как "' +
+        'Упражнения за этот день будут удалены, а день отмечен как "' +
         STATUS_LABELS[status] +
         '". Продолжить?';
 
@@ -168,6 +196,8 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
 
     applyStatus(status);
   };
+
+  // --- Упражнения ---
 
   const handleSaveWorkout = async () => {
     const exercisesList = Object.keys(exerciseReps).map(exercise => ({
@@ -182,13 +212,38 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
 
     setSaving(true);
     try {
-      await saveExercisesForDate(userId, dateKey, exercisesList);
+      // Личная статистика (эта запись) должна сохраняться и офлайн —
+      // saveWithOfflineFallback не даёт кнопке зависнуть, если сети
+      // нет: подробности в services/offlineSync.js.
+      const result = await saveWithOfflineFallback(
+        saveExercisesForDate(
+          userId,
+          dateKey,
+          exercisesList,
+          originalNamesRef.current,
+        ),
+      );
+      if (result.error) {
+        throw result.error;
+      }
+      originalNamesRef.current = exercisesList.map(item => item.exercise);
 
+      // Рейтинг для общей таблицы лидеров сохраняем в фоне, не
+      // дожидаясь ответа — эта часть и так требует интернет, но не
+      // должна задерживать сохранение личной тренировки.
       const rating = computeDayRating(exercisesList, exerciseCoefficients);
-      await saveDayRating(userId, dateKey, rating);
+      saveDayRating(userId, dateKey, rating).catch(error =>
+        console.error('Рейтинг дня синхронизируется позже:', error),
+      );
 
       setIsDirty(false);
-      Alert.alert('Готово', 'Тренировка сохранена');
+      setIsEditingExercises(false);
+      Alert.alert(
+        'Готово',
+        result.pending
+          ? 'Тренировка сохранена на устройстве. Отправится на сервер автоматически, когда появится интернет.'
+          : 'Тренировка сохранена',
+      );
       if (onSaved) {
         onSaved();
       }
@@ -199,19 +254,29 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
     }
   };
 
-  const handleDeleteDay = () => {
-    Alert.alert('Удалить запись', 'Удалить все данные за этот день?', [
+  const handleDeleteExercises = () => {
+    Alert.alert('Удалить упражнения', 'Удалить все упражнения за этот день?', [
       {text: 'Отмена', style: 'cancel'},
       {
         text: 'Удалить',
         style: 'destructive',
         onPress: async () => {
           try {
-            await clearDay(userId, dateKey);
-            await deleteDayRating(userId, dateKey);
+            const result = await saveWithOfflineFallback(
+              clearDay(userId, dateKey, originalNamesRef.current),
+            );
+            if (result.error) {
+              throw result.error;
+            }
+            originalNamesRef.current = [];
+
+            deleteDayRating(userId, dateKey).catch(error =>
+              console.error('Удаление рейтинга дня отложено до сети:', error),
+            );
+
             setExerciseReps({});
-            setDayStatus(null);
             setIsDirty(false);
+            setIsEditingExercises(false);
             if (onSaved) {
               onSaved();
             }
@@ -227,84 +292,17 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
     return null;
   }
 
-  const hasAnyData = hasReps || dayStatus !== null;
+  // Показываем форму редактирования, если пользователь явно нажал
+  // "Редактировать", либо если упражнений ещё нет вообще (нечего
+  // показывать как список).
+  const showExerciseEditor = isEditingExercises || !hasReps;
 
   return (
     <View>
       <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
-      <View style={styles.exerciseList}>
-        {exerciseNames.map(exercise => {
-          const isSelected = selectedExercise === exercise;
-          const totalReps = exerciseReps[exercise];
-
-          return (
-            <TouchableOpacity
-              key={exercise}
-              style={[
-                styles.exerciseButton,
-                isSelected ? styles.exerciseButtonSelected : null,
-              ]}
-              onPress={() => handleSelectExercise(exercise)}
-              activeOpacity={0.8}>
-              <View style={styles.exerciseHeaderRow}>
-                <Text
-                  style={[
-                    styles.exerciseButtonText,
-                    isSelected ? styles.exerciseButtonTextSelected : null,
-                  ]}>
-                  {exercise}
-                </Text>
-
-                {totalReps > 0 ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalText}>{totalReps}</Text>
-                    {isSelected ? (
-                      <TouchableOpacity
-                        onPress={() => handleRemoveExercise(exercise)}
-                        hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                        <Text style={styles.removeCross}>✕</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-
-              {isSelected ? (
-                <View style={styles.inlineEditRow}>
-                  <TextInput
-                    style={styles.inlineInput}
-                    placeholder="Кол-во повторений"
-                    keyboardType="numeric"
-                    value={repsInput}
-                    onChangeText={handleChangeRepsInput}
-                    maxLength={4}
-                    autoFocus
-                  />
-                  <TouchableOpacity
-                    style={styles.confirmButton}
-                    onPress={handleAddExercise}>
-                    <Text style={styles.confirmButtonText}>✓</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <TouchableOpacity
-        style={[
-          styles.saveButton,
-          !isDirty ? styles.saveButtonDisabled : null,
-        ]}
-        onPress={handleSaveWorkout}
-        disabled={saving || !isDirty}>
-        <Text style={styles.saveButtonText}>
-          {saving ? 'Сохранение...' : 'Сохранить тренировку'}
-        </Text>
-      </TouchableOpacity>
-
+      {/* Статус — приоритетный блок, доступен сразу, без входа
+          в режим редактирования упражнений */}
       <Text style={styles.statusTitle}>Отметить день</Text>
       <View style={styles.statusRow}>
         {Object.values(DAY_STATUS).map(status => {
@@ -316,7 +314,8 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
                 styles.statusButton,
                 isActive ? styles.statusButtonActive : null,
               ]}
-              onPress={() => handleSetStatus(status)}>
+              onPress={() => handleSetStatus(status)}
+              testID={`day-status-button-${status}`}>
               <Text
                 style={[
                   styles.statusButtonText,
@@ -329,22 +328,137 @@ export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
         })}
       </View>
 
-      {hasAnyData ? (
-        <View style={styles.deleteSection}>
-          <View style={styles.divider} />
+      <View style={styles.divider} />
+
+      {showExerciseEditor ? (
+        <View>
+          <View style={styles.exerciseList}>
+            {exerciseNames.map(exercise => {
+              const isSelected = selectedExercise === exercise;
+              const totalReps = exerciseReps[exercise];
+
+              return (
+                <TouchableOpacity
+                  key={exercise}
+                  style={[
+                    styles.exerciseButton,
+                    isSelected ? styles.exerciseButtonSelected : null,
+                  ]}
+                  onPress={() => handleSelectExercise(exercise)}
+                  activeOpacity={0.8}>
+                  <View style={styles.exerciseHeaderRow}>
+                    <Text
+                      style={[
+                        styles.exerciseButtonText,
+                        isSelected ? styles.exerciseButtonTextSelected : null,
+                      ]}>
+                      {exercise}
+                    </Text>
+
+                    {totalReps > 0 ? (
+                      <View style={styles.totalRow}>
+                        <Text style={styles.totalText}>{totalReps}</Text>
+                        {isSelected ? (
+                          <TouchableOpacity
+                            onPress={() => handleRemoveExercise(exercise)}
+                            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                            <Text style={styles.removeCross}>✕</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {isSelected ? (
+                    <View style={styles.inlineEditRow}>
+                      <TextInput
+                        style={styles.inlineInput}
+                        placeholder="Кол-во повторений"
+                        keyboardType="numeric"
+                        value={repsInput}
+                        onChangeText={handleChangeRepsInput}
+                        maxLength={4}
+                        autoFocus
+                      />
+                      <TouchableOpacity
+                        style={styles.confirmButton}
+                        onPress={handleAddExercise}>
+                        <Text style={styles.confirmButtonText}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={handleDeleteDay}>
-            <Text style={styles.deleteButtonText}>Удалить запись за день</Text>
+            style={[
+              styles.saveButton,
+              !isDirty ? styles.saveButtonDisabled : null,
+            ]}
+            onPress={handleSaveWorkout}
+            disabled={saving || !isDirty}>
+            <Text style={styles.saveButtonText}>
+              {saving ? 'Сохранение...' : 'Сохранить тренировку'}
+            </Text>
           </TouchableOpacity>
+
+          {hasReps ? (
+            <TouchableOpacity
+              style={styles.cancelEditButton}
+              onPress={() => setIsEditingExercises(false)}>
+              <Text style={styles.cancelEditButtonText}>Отмена</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
-      ) : null}
+      ) : (
+        <View>
+          {Object.keys(exerciseReps).map(exercise => (
+            <Text key={exercise} style={styles.readOnlyExerciseText}>
+              {exercise} — {exerciseReps[exercise]}
+            </Text>
+          ))}
+
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={() => setIsEditingExercises(true)}>
+            <Text style={styles.editButtonText}>Редактировать</Text>
+          </TouchableOpacity>
+
+          <View style={styles.deleteSection}>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDeleteExercises}>
+              <Text style={styles.deleteButtonText}>Удалить упражнения за день</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
+
+  statusTitle: {fontSize: 15, color: '#777', marginBottom: 8},
+  statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
+  statusButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  statusButtonActive: {backgroundColor: '#2196F3', borderColor: '#2196F3'},
+  statusButtonText: {color: '#333', fontSize: 14},
+  statusButtonTextActive: {color: '#fff'},
+
+  divider: {height: 1, backgroundColor: '#eee', marginVertical: 16},
+
   exerciseList: {flexDirection: 'column'},
   exerciseButton: {
     paddingVertical: 12,
@@ -365,6 +479,7 @@ const styles = StyleSheet.create({
   totalRow: {flexDirection: 'row', alignItems: 'center'},
   totalText: {fontSize: 15, color: '#555', marginRight: 10},
   removeCross: {fontSize: 18, color: '#e53935', fontWeight: 'bold'},
+
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
   inlineInput: {
     flex: 1,
@@ -387,31 +502,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   confirmButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 18},
+
   saveButton: {
     backgroundColor: '#2196F3',
     padding: 14,
     borderRadius: 8,
-    marginTop: 20,
+    marginTop: 12,
     alignItems: 'center',
   },
   saveButtonDisabled: {backgroundColor: '#B0BEC5'},
   saveButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 16},
-  statusTitle: {fontSize: 15, color: '#777', marginTop: 24, marginBottom: 8},
-  statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
-  statusButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    marginRight: 8,
-    marginBottom: 8,
+
+  cancelEditButton: {paddingVertical: 12, alignItems: 'center'},
+  cancelEditButtonText: {color: '#777', fontSize: 14},
+
+  readOnlyExerciseText: {fontSize: 15, color: '#333', marginBottom: 4},
+  editButton: {
+    marginTop: 16,
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
-  statusButtonActive: {backgroundColor: '#2196F3', borderColor: '#2196F3'},
-  statusButtonText: {color: '#333', fontSize: 14},
-  statusButtonTextActive: {color: '#fff'},
-  deleteSection: {marginTop: 40},
-  divider: {height: 1, backgroundColor: '#eee', marginBottom: 20},
+  editButtonText: {color: '#fff', fontWeight: 'bold'},
+
+  deleteSection: {marginTop: 24},
   deleteButton: {
     paddingVertical: 12,
     alignItems: 'center',

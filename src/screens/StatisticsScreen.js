@@ -134,6 +134,12 @@ export default function StatisticsScreen() {
 
   const [leaderboard, setLeaderboard] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
+  // true — показанные данные рейтинга взяты из локального кэша, а
+  // не с сервера (то есть могут быть неактуальны без интернета).
+  const [leaderboardFromCache, setLeaderboardFromCache] = useState(false);
+  // Заполняется, только если данных о рейтинге нет вообще нигде —
+  // ни на сервере, ни в кэше (например, самый первый запуск офлайн).
+  const [leaderboardUnavailable, setLeaderboardUnavailable] = useState(false);
 
   const [coefficientsVisible, setCoefficientsVisible] = useState(false);
 
@@ -187,11 +193,22 @@ export default function StatisticsScreen() {
 
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
+    setLeaderboardUnavailable(false);
     try {
-      const result = await fetchLeaderboard(leaderboardStartKey, todayKey);
-      setLeaderboard(result);
+      const {items, fromCache} = await fetchLeaderboard(
+        leaderboardStartKey,
+        todayKey,
+      );
+      setLeaderboard(items);
+      setLeaderboardFromCache(fromCache);
     } catch (error) {
+      // Рейтинг — единственная часть приложения, которой обязательно
+      // нужен интернет (данные всех пользователей). Если офлайн и
+      // локального кэша тоже нет, честно показываем это, а не
+      // "крутим" индикатор бесконечно.
       console.error('Ошибка загрузки рейтинга:', error);
+      setLeaderboard([]);
+      setLeaderboardUnavailable(true);
     } finally {
       setLoadingLeaderboard(false);
     }
@@ -258,8 +275,19 @@ export default function StatisticsScreen() {
         testIdPrefix="statistics-leaderboard-period"
       />
 
+      {leaderboardFromCache && !loadingLeaderboard && leaderboard.length > 0 ? (
+        <Text style={styles.offlineNote}>
+          Нет подключения к интернету — показаны последние сохранённые данные
+        </Text>
+      ) : null}
+
       {loadingLeaderboard ? (
         <ActivityIndicator style={styles.loader} />
+      ) : leaderboardUnavailable ? (
+        <Text style={styles.emptyText}>
+          Рейтинг недоступен без интернета. Ваши тренировки уже сохранены и
+          попадут в общий зачёт автоматически, когда появится связь.
+        </Text>
       ) : leaderboard.length === 0 ? (
         <Text style={styles.emptyText}>Нет данных за этот период</Text>
       ) : (
@@ -312,6 +340,11 @@ const styles = StyleSheet.create({
   },
   infoIcon: {fontSize: 20, color: '#2196F3'},
   loader: {marginTop: 12},
+  offlineNote: {
+    fontSize: 12,
+    color: '#FF9800',
+    marginBottom: 8,
+  },
   emptyText: {fontSize: 14, color: '#999', marginTop: 4, marginBottom: 12},
   row: {
     flexDirection: 'row',

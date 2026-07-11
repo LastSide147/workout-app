@@ -1,11 +1,11 @@
 import React, {useEffect, useState, useRef} from 'react';
-import {View, Text, TouchableOpacity, StyleSheet, ScrollView} from 'react-native';
+import {View, Text, StyleSheet, ScrollView} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {ensureSignedIn} from '../services/firebase';
-import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
+import {subscribeToWorkoutDays} from '../services/workoutDays';
 import {recalculateAllRatings} from '../services/ratings';
-import {DAY_STATUS, STATUS_LABELS, STATUS_COLORS} from '../constants/dayStatus';
-import {getDateKey, formatDateDisplay} from '../utils/date';
+import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
+import {getDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
 import useExercises from '../hooks/useExercises';
 
@@ -32,8 +32,6 @@ export default function WorkoutHistoryScreen() {
   const [userId, setUserId] = useState(null);
   const [days, setDays] = useState({});
   const [selectedDate, setSelectedDate] = useState(todayKey);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedEntries, setSelectedEntries] = useState([]);
 
   const {exerciseCoefficients, loadingExercises} = useExercises();
   const recalculatedRef = useRef(false);
@@ -51,16 +49,6 @@ export default function WorkoutHistoryScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    if (userId) {
-      getDayEntries(userId, selectedDate).then(setSelectedEntries);
-    }
-  }, [userId, selectedDate]);
-
-  // Пересчитываем рейтинг по всем дням один раз при открытии экрана —
-  // чтобы изменение коэффициента упражнения мастером отражалось
-  // в уже сохранённых тренировках без необходимости пересохранять
-  // каждый день вручную.
   useEffect(() => {
     if (
       userId &&
@@ -97,16 +85,9 @@ export default function WorkoutHistoryScreen() {
       : '#2196F3',
   };
 
-  const selectedDayData = days[selectedDate];
-  const hasExercises = selectedEntries.length > 0;
-  const hasAnyData = hasExercises || (selectedDayData && selectedDayData.status);
-
   const handleDayPress = day => {
     setSelectedDate(day.dateString);
-    setIsEditing(false);
   };
-
-  const showEditor = isEditing || !hasAnyData;
 
   return (
     <ScrollView style={styles.container}>
@@ -122,42 +103,9 @@ export default function WorkoutHistoryScreen() {
       </View>
 
       <View style={styles.details}>
-        {showEditor ? (
-          userId ? (
-            <DayEditor
-              userId={userId}
-              dateKey={selectedDate}
-              initialStatus={selectedDayData ? selectedDayData.status : null}
-              onSaved={() => setIsEditing(false)}
-            />
-          ) : null
-        ) : (
-          <View>
-            <Text style={styles.detailsDate}>
-              {formatDateDisplay(selectedDate)}
-            </Text>
-
-            {hasExercises ? (
-              <View>
-                {selectedEntries.map((ex, index) => (
-                  <Text key={index} style={styles.exerciseText}>
-                    {ex.exercise} — {ex.reps}
-                  </Text>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.statusText}>
-                {STATUS_LABELS[selectedDayData.status]}
-              </Text>
-            )}
-
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={() => setIsEditing(true)}>
-              <Text style={styles.editButtonText}>Редактировать</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {userId ? (
+          <DayEditor key={selectedDate} userId={userId} dateKey={selectedDate} />
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -185,15 +133,4 @@ const styles = StyleSheet.create({
   legendDot: {width: 10, height: 10, borderRadius: 5, marginRight: 6},
   legendText: {fontSize: 13, color: '#555'},
   details: {marginTop: 20, paddingBottom: 40},
-  detailsDate: {fontSize: 18, fontWeight: 'bold', marginBottom: 10},
-  exerciseText: {fontSize: 15, color: '#333', marginBottom: 4},
-  statusText: {fontSize: 16, color: '#555'},
-  editButton: {
-    marginTop: 16,
-    backgroundColor: '#2196F3',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  editButtonText: {color: '#fff', fontWeight: 'bold'},
 });

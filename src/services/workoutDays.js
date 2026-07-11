@@ -1,4 +1,5 @@
 import firestore from '@react-native-firebase/firestore';
+import {getWithOfflineFallback} from './offlineSync';
 
 function workoutsCollection(userId) {
   return firestore().collection('users').doc(userId).collection('workouts');
@@ -19,27 +20,38 @@ export function subscribeToWorkoutDays(userId, onData) {
 }
 
 export async function getDay(userId, dateKey) {
-  const doc = await workoutsCollection(userId).doc(dateKey).get();
+  const doc = await getWithOfflineFallback(workoutsCollection(userId).doc(dateKey));
   return doc.exists ? doc.data() : null;
 }
 
 export async function getDayEntries(userId, dateKey) {
-  const snapshot = await entriesCollection(userId, dateKey).get();
+  const snapshot = await getWithOfflineFallback(entriesCollection(userId, dateKey));
   return snapshot.docs.map(doc => ({
     exercise: doc.id,
     reps: doc.data().reps,
   }));
 }
 
-export async function saveExercisesForDate(userId, dateKey, exercisesList) {
-  const existingSnapshot = await entriesCollection(userId, dateKey).get();
+// ВАЖНО: previousExerciseNames передаётся с экрана (то, что уже было
+// загружено при открытии дня), а не читается заново через .get().
+// Раньше здесь был запрос entriesCollection(...).get() перед каждой
+// записью — именно на нём кнопка "Сохранить" зависала офлайн: SDK
+// ждал ответа сервера, чтобы узнать, какие упражнения уже есть в
+// базе, и только потом формировал batch на удаление/запись. Теперь
+// это сравнение делается на клиенте, батч собирается мгновенно и
+// уходит в локальный кэш Firestore без единого сетевого чтения.
+export async function saveExercisesForDate(
+  userId,
+  dateKey,
+  exercisesList,
+  previousExerciseNames = [],
+) {
   const newNames = exercisesList.map(item => item.exercise);
-
   const batch = firestore().batch();
 
-  existingSnapshot.docs.forEach(doc => {
-    if (!newNames.includes(doc.id)) {
-      batch.delete(doc.ref);
+  previousExerciseNames.forEach(name => {
+    if (!newNames.includes(name)) {
+      batch.delete(entriesCollection(userId, dateKey).doc(name));
     }
   });
 
@@ -57,14 +69,20 @@ export async function saveExercisesForDate(userId, dateKey, exercisesList) {
     updatedAt: firestore.FieldValue.serverTimestamp(),
   });
 
-  await batch.commit();
+  return batch.commit();
 }
 
-export async function setStatusForDate(userId, dateKey, status) {
-  const existingSnapshot = await entriesCollection(userId, dateKey).get();
+export async function setStatusForDate(
+  userId,
+  dateKey,
+  status,
+  previousExerciseNames = [],
+) {
   const batch = firestore().batch();
 
-  existingSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+  previousExerciseNames.forEach(name =>
+    batch.delete(entriesCollection(userId, dateKey).doc(name)),
+  );
 
   batch.set(workoutsCollection(userId).doc(dateKey), {
     date: dateKey,
@@ -73,15 +91,16 @@ export async function setStatusForDate(userId, dateKey, status) {
     updatedAt: firestore.FieldValue.serverTimestamp(),
   });
 
-  await batch.commit();
+  return batch.commit();
 }
 
-export async function clearDay(userId, dateKey) {
-  const existingSnapshot = await entriesCollection(userId, dateKey).get();
+export async function clearDay(userId, dateKey, previousExerciseNames = []) {
   const batch = firestore().batch();
 
-  existingSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+  previousExerciseNames.forEach(name =>
+    batch.delete(entriesCollection(userId, dateKey).doc(name)),
+  );
   batch.delete(workoutsCollection(userId).doc(dateKey));
 
-  await batch.commit();
+  return batch.commit();
 }
