@@ -11,25 +11,24 @@ import useExercises from '../hooks/useExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
   getDay,
+  getDayEntries,
   saveExercisesForDate,
   setStatusForDate,
   clearDay,
 } from '../services/workoutDays';
+import {
+  computeDayRating,
+  saveDayRating,
+  deleteDayRating,
+  upsertProfileNickname,
+} from '../services/ratings';
 import {formatDateDisplay} from '../utils/date';
 
-const MAX_REPS = 100000;
+const MAX_REPS = 5000;
 
-export default function DayEditor({
-  userId,
-  dateKey,
-  initialExercises,
-  initialStatus,
-  onSaved,
-}) {
-  // Список упражнений теперь приходит из Firestore в реальном времени,
-  // а не из статического constants/exercises.js — поэтому появился
-  // loadingExercises, который нужно дождаться перед отрисовкой списка
-  const {exerciseNames, loadingExercises} = useExercises();
+export default function DayEditor({userId, dateKey, initialStatus, onSaved}) {
+  const {exerciseNames, exerciseCoefficients, loadingExercises} =
+    useExercises();
 
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [repsInput, setRepsInput] = useState('');
@@ -37,10 +36,15 @@ export default function DayEditor({
   const [dayStatus, setDayStatus] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
-
-  // Флаг "были изменения с момента загрузки/последнего сохранения".
-  // Кнопка "Сохранить тренировку" активна только когда true.
   const [isDirty, setIsDirty] = useState(false);
+
+  useEffect(() => {
+    if (userId) {
+      upsertProfileNickname(userId).catch(error =>
+        console.error('Ошибка сохранения профиля:', error),
+      );
+    }
+  }, [userId]);
 
   useEffect(() => {
     setSelectedExercise(null);
@@ -49,28 +53,18 @@ export default function DayEditor({
     setIsDirty(false);
 
     async function loadData() {
-      if (initialExercises !== undefined || initialStatus !== undefined) {
-        const repsMap = {};
-        (initialExercises || []).forEach(item => {
-          repsMap[item.exercise] = item.reps;
-        });
-        setExerciseReps(repsMap);
-        setDayStatus(initialStatus || null);
-        setLoaded(true);
-        return;
-      }
+      const entries = await getDayEntries(userId, dateKey);
+      const repsMap = {};
+      entries.forEach(item => {
+        repsMap[item.exercise] = item.reps;
+      });
+      setExerciseReps(repsMap);
 
-      const day = await getDay(userId, dateKey);
-      if (day) {
-        const repsMap = {};
-        (day.exercises || []).forEach(item => {
-          repsMap[item.exercise] = item.reps;
-        });
-        setExerciseReps(repsMap);
-        setDayStatus(day.status || null);
+      if (initialStatus !== undefined) {
+        setDayStatus(initialStatus || null);
       } else {
-        setExerciseReps({});
-        setDayStatus(null);
+        const day = await getDay(userId, dateKey);
+        setDayStatus(day ? day.status || null : null);
       }
       setLoaded(true);
     }
@@ -78,7 +72,7 @@ export default function DayEditor({
     if (userId) {
       loadData();
     }
-  }, [dateKey, userId]);
+  }, [dateKey, userId, initialStatus]);
 
   const handleSelectExercise = exercise => {
     if (selectedExercise === exercise) {
@@ -148,7 +142,8 @@ export default function DayEditor({
       } else {
         await setStatusForDate(userId, dateKey, newStatus);
       }
-      setIsDirty(false); // статус сохраняется сразу, поэтому "грязных" изменений больше нет
+      await deleteDayRating(userId, dateKey);
+      setIsDirty(false);
       if (onSaved) {
         onSaved();
       }
@@ -188,6 +183,10 @@ export default function DayEditor({
     setSaving(true);
     try {
       await saveExercisesForDate(userId, dateKey, exercisesList);
+
+      const rating = computeDayRating(exercisesList, exerciseCoefficients);
+      await saveDayRating(userId, dateKey, rating);
+
       setIsDirty(false);
       Alert.alert('Готово', 'Тренировка сохранена');
       if (onSaved) {
@@ -209,6 +208,7 @@ export default function DayEditor({
         onPress: async () => {
           try {
             await clearDay(userId, dateKey);
+            await deleteDayRating(userId, dateKey);
             setExerciseReps({});
             setDayStatus(null);
             setIsDirty(false);
@@ -278,7 +278,7 @@ export default function DayEditor({
                     keyboardType="numeric"
                     value={repsInput}
                     onChangeText={handleChangeRepsInput}
-                    maxLength={6}
+                    maxLength={4}
                     autoFocus
                   />
                   <TouchableOpacity
@@ -345,7 +345,6 @@ export default function DayEditor({
 
 const styles = StyleSheet.create({
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
-
   exerciseList: {flexDirection: 'column'},
   exerciseButton: {
     paddingVertical: 12,
@@ -366,7 +365,6 @@ const styles = StyleSheet.create({
   totalRow: {flexDirection: 'row', alignItems: 'center'},
   totalText: {fontSize: 15, color: '#555', marginRight: 10},
   removeCross: {fontSize: 18, color: '#e53935', fontWeight: 'bold'},
-
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
   inlineInput: {
     flex: 1,
@@ -389,7 +387,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   confirmButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 18},
-
   saveButton: {
     backgroundColor: '#2196F3',
     padding: 14,
@@ -399,7 +396,6 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: {backgroundColor: '#B0BEC5'},
   saveButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 16},
-
   statusTitle: {fontSize: 15, color: '#777', marginTop: 24, marginBottom: 8},
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
   statusButton: {
@@ -414,7 +410,6 @@ const styles = StyleSheet.create({
   statusButtonActive: {backgroundColor: '#2196F3', borderColor: '#2196F3'},
   statusButtonText: {color: '#333', fontSize: 14},
   statusButtonTextActive: {color: '#fff'},
-
   deleteSection: {marginTop: 40},
   divider: {height: 1, backgroundColor: '#eee', marginBottom: 20},
   deleteButton: {

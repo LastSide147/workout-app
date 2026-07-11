@@ -1,11 +1,13 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useRef} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, ScrollView} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {ensureSignedIn} from '../services/firebase';
-import {subscribeToWorkoutDays} from '../services/workoutDays';
+import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
+import {recalculateAllRatings} from '../services/ratings';
 import {DAY_STATUS, STATUS_LABELS, STATUS_COLORS} from '../constants/dayStatus';
 import {getDateKey, formatDateDisplay} from '../utils/date';
 import DayEditor from '../components/DayEditor';
+import useExercises from '../hooks/useExercises';
 
 LocaleConfig.locales['ru'] = {
   monthNames: [
@@ -31,6 +33,10 @@ export default function WorkoutHistoryScreen() {
   const [days, setDays] = useState({});
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [isEditing, setIsEditing] = useState(false);
+  const [selectedEntries, setSelectedEntries] = useState([]);
+
+  const {exerciseCoefficients, loadingExercises} = useExercises();
+  const recalculatedRef = useRef(false);
 
   useEffect(() => {
     let unsubscribe;
@@ -45,12 +51,34 @@ export default function WorkoutHistoryScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (userId) {
+      getDayEntries(userId, selectedDate).then(setSelectedEntries);
+    }
+  }, [userId, selectedDate]);
+
+  // Пересчитываем рейтинг по всем дням один раз при открытии экрана —
+  // чтобы изменение коэффициента упражнения мастером отражалось
+  // в уже сохранённых тренировках без необходимости пересохранять
+  // каждый день вручную.
+  useEffect(() => {
+    if (
+      userId &&
+      !loadingExercises &&
+      Object.keys(days).length > 0 &&
+      !recalculatedRef.current
+    ) {
+      recalculatedRef.current = true;
+      recalculateAllRatings(userId, days, exerciseCoefficients);
+    }
+  }, [userId, days, loadingExercises, exerciseCoefficients]);
+
   const marked = {};
   Object.keys(days).forEach(dateKey => {
     const data = days[dateKey];
     let color = null;
 
-    if (data.exercises && data.exercises.length > 0) {
+    if (data.hasExercises) {
       color = STATUS_COLORS.workout;
     } else if (data.status) {
       color = STATUS_COLORS[data.status];
@@ -70,10 +98,7 @@ export default function WorkoutHistoryScreen() {
   };
 
   const selectedDayData = days[selectedDate];
-  const hasExercises =
-    selectedDayData &&
-    selectedDayData.exercises &&
-    selectedDayData.exercises.length > 0;
+  const hasExercises = selectedEntries.length > 0;
   const hasAnyData = hasExercises || (selectedDayData && selectedDayData.status);
 
   const handleDayPress = day => {
@@ -87,11 +112,8 @@ export default function WorkoutHistoryScreen() {
     <ScrollView style={styles.container}>
       <Text style={styles.title}>История</Text>
 
-<Calendar
-  markedDates={marked}
-  onDayPress={handleDayPress}
-  firstDay={1}
-/>
+      <Calendar markedDates={marked} onDayPress={handleDayPress} firstDay={1} />
+
       <View style={styles.legend}>
         <LegendItem color={STATUS_COLORS.workout} label="Тренировка" />
         <LegendItem color={STATUS_COLORS[DAY_STATUS.WEEKEND]} label="Выходной" />
@@ -105,7 +127,6 @@ export default function WorkoutHistoryScreen() {
             <DayEditor
               userId={userId}
               dateKey={selectedDate}
-              initialExercises={selectedDayData ? selectedDayData.exercises : []}
               initialStatus={selectedDayData ? selectedDayData.status : null}
               onSaved={() => setIsEditing(false)}
             />
@@ -118,7 +139,7 @@ export default function WorkoutHistoryScreen() {
 
             {hasExercises ? (
               <View>
-                {selectedDayData.exercises.map((ex, index) => (
+                {selectedEntries.map((ex, index) => (
                   <Text key={index} style={styles.exerciseText}>
                     {ex.exercise} — {ex.reps}
                   </Text>
@@ -154,7 +175,6 @@ function LegendItem({color, label}) {
 const styles = StyleSheet.create({
   container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: '#fff'},
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
-
   legend: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 12},
   legendItem: {
     flexDirection: 'row',
@@ -164,12 +184,10 @@ const styles = StyleSheet.create({
   },
   legendDot: {width: 10, height: 10, borderRadius: 5, marginRight: 6},
   legendText: {fontSize: 13, color: '#555'},
-
   details: {marginTop: 20, paddingBottom: 40},
   detailsDate: {fontSize: 18, fontWeight: 'bold', marginBottom: 10},
   exerciseText: {fontSize: 15, color: '#333', marginBottom: 4},
   statusText: {fontSize: 16, color: '#555'},
-
   editButton: {
     marginTop: 16,
     backgroundColor: '#2196F3',

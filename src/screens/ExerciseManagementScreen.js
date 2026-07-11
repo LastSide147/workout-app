@@ -12,7 +12,7 @@ import {
 import useExercises from '../hooks/useExercises';
 import {
   addExercise,
-  updateExerciseName,
+  updateExercise,
   deleteExercise,
   reorderExercise,
 } from '../services/exercises';
@@ -22,9 +22,11 @@ export default function ExerciseManagementScreen({onClose}) {
 
   const [addingNew, setAddingNew] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
+  const [newCoefficientInput, setNewCoefficientInput] = useState('');
 
   const [editingId, setEditingId] = useState(null);
   const [editNameInput, setEditNameInput] = useState('');
+  const [editCoefficientInput, setEditCoefficientInput] = useState('');
 
   const [saving, setSaving] = useState(false);
 
@@ -32,14 +34,16 @@ export default function ExerciseManagementScreen({onClose}) {
     setEditingId(null);
     setAddingNew(true);
     setNewNameInput('');
+    setNewCoefficientInput('');
   };
 
   const handleConfirmAdd = async () => {
     setSaving(true);
     try {
-      await addExercise(newNameInput, exercises);
+      await addExercise(newNameInput, newCoefficientInput, exercises);
       setAddingNew(false);
       setNewNameInput('');
+      setNewCoefficientInput('');
     } catch (error) {
       Alert.alert('Ошибка', error.message);
     } finally {
@@ -55,12 +59,20 @@ export default function ExerciseManagementScreen({onClose}) {
     setAddingNew(false);
     setEditingId(item.id);
     setEditNameInput(item.name);
+    setEditCoefficientInput(
+      typeof item.coefficient === 'number' ? String(item.coefficient) : '',
+    );
   };
 
   const handleConfirmEdit = async () => {
     setSaving(true);
     try {
-      await updateExerciseName(editingId, editNameInput, exercises);
+      await updateExercise(
+        editingId,
+        editNameInput,
+        editCoefficientInput,
+        exercises,
+      );
       setEditingId(null);
     } catch (error) {
       Alert.alert('Ошибка', error.message);
@@ -91,8 +103,6 @@ export default function ExerciseManagementScreen({onClose}) {
     );
   };
 
-  // index приходит от FlatList — это позиция в отсортированном по order
-  // массиве exercises, именно она нужна reorderExercise для поиска соседа
   const handleMoveUp = index => {
     reorderExercise(exercises, index, -1).catch(error =>
       Alert.alert('Ошибка', error.message),
@@ -113,8 +123,6 @@ export default function ExerciseManagementScreen({onClose}) {
     return (
       <View style={styles.itemWrapper}>
         <View style={styles.itemRow}>
-          {/* Стрелки порядка — отдельные кнопки, чтобы не путать
-              с нажатием на само упражнение (открывает редактирование) */}
           <View style={styles.orderButtons}>
             <TouchableOpacity
               onPress={() => handleMoveUp(index)}
@@ -149,6 +157,11 @@ export default function ExerciseManagementScreen({onClose}) {
             onPress={() => handleSelectItem(item)}
             testID={`exercise-management-item-${item.id}`}>
             <Text style={styles.itemText}>{item.name}</Text>
+            <Text style={styles.coefficientText}>
+              {typeof item.coefficient === 'number'
+                ? `коэф. ${item.coefficient}`
+                : '⚠ коэффициент не задан'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -161,6 +174,15 @@ export default function ExerciseManagementScreen({onClose}) {
               maxLength={50}
               autoFocus
               testID="exercise-management-edit-input"
+            />
+            <TextInput
+              style={styles.coefficientInput}
+              value={editCoefficientInput}
+              onChangeText={setEditCoefficientInput}
+              placeholder="Коэф."
+              keyboardType="decimal-pad"
+              maxLength={6}
+              testID="exercise-management-edit-coefficient-input"
             />
             <TouchableOpacity
               style={styles.confirmButton}
@@ -207,6 +229,15 @@ export default function ExerciseManagementScreen({onClose}) {
             maxLength={50}
             autoFocus
             testID="exercise-management-new-input"
+          />
+          <TextInput
+            style={styles.coefficientInput}
+            value={newCoefficientInput}
+            onChangeText={setNewCoefficientInput}
+            placeholder="Коэф."
+            keyboardType="decimal-pad"
+            maxLength={6}
+            testID="exercise-management-new-coefficient-input"
           />
           <TouchableOpacity
             style={styles.confirmButton}
@@ -270,6 +301,7 @@ const styles = StyleSheet.create({
   orderArrowDisabled: {color: '#ccc'},
   item: {flex: 1, paddingVertical: 14},
   itemText: {fontSize: 16, color: '#333'},
+  coefficientText: {fontSize: 12, color: '#888', marginTop: 2},
 
   editRow: {
     flexDirection: 'row',
@@ -284,6 +316,18 @@ const styles = StyleSheet.create({
     borderColor: '#2196F3',
     borderRadius: 8,
     paddingHorizontal: 12,
+    marginRight: 8,
+    color: '#000',
+    backgroundColor: '#fff',
+  },
+  coefficientInput: {
+    width: 70,
+    height: 44,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+    borderRadius: 8,
+    paddingHorizontal: 8,
     marginRight: 8,
     color: '#000',
     backgroundColor: '#fff',
