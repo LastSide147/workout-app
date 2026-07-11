@@ -104,7 +104,12 @@ export default function WorkoutHistoryScreen() {
 
       <View style={styles.details}>
         {userId ? (
-          <DayEditor key={selectedDate} userId={userId} dateKey={selectedDate} />
+          <DayEditor
+            key={selectedDate}
+            userId={userId}
+            dateKey={selectedDate}
+            variant="history"
+          />
         ) : null}
       </View>
     </ScrollView>
