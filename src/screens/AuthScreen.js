@@ -15,6 +15,7 @@ import {
   logout,
   getAuthErrorMessage,
 } from '../services/auth';
+import colors from '../theme/colors';
 
 // Простая проверка формата email на стороне приложения — до отправки
 // запроса в Firebase. Ловит очевидные ошибки (нет @, нет точки в домене)
@@ -182,12 +183,12 @@ export default function AuthScreen({pendingVerification, onVerified}) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 24, justifyContent: 'center', backgroundColor: '#fff'},
+  container: {flex: 1, padding: 24, justifyContent: 'center', backgroundColor: colors.white},
   title: {fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center'},
-  description: {fontSize: 15, color: '#555', textAlign: 'center', marginBottom: 24},
+  description: {fontSize: 15, color: colors.textSecondary, textAlign: 'center', marginBottom: 24},
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     borderRadius: 8,
     marginBottom: 12,
   },
@@ -209,13 +210,13 @@ const styles = StyleSheet.create({
   eyeButton: {paddingHorizontal: 12},
   eyeIcon: {fontSize: 18},
   primaryButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: colors.primary,
     padding: 14,
     borderRadius: 8,
     alignItems: 'center',
     marginTop: 8,
   },
-  primaryButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 16},
+  primaryButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 16},
   linkButton: {marginTop: 16, alignItems: 'center'},
-  linkText: {color: '#2196F3', fontSize: 14},
+  linkText: {color: colors.primary, fontSize: 14},
 });

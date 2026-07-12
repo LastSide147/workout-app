@@ -3,6 +3,7 @@ import {View, StyleSheet} from 'react-native';
 import {ensureSignedIn} from '../services/firebase';
 import DayEditor from '../components/DayEditor';
 import {getDateKey} from '../utils/date';
+import colors from '../theme/colors';
 
 const todayKey = getDateKey(new Date());
 
@@ -25,5 +26,5 @@ export default function WorkoutLogScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: '#fff'},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
 });

@@ -16,6 +16,7 @@ import {
   deleteExercise,
   reorderExercise,
 } from '../services/exercises';
+import colors from '../theme/colors';
 
 export default function ExerciseManagementScreen({onClose}) {
   const {exercises, loadingExercises} = useExercises();
@@ -264,7 +265,7 @@ export default function ExerciseManagementScreen({onClose}) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {flex: 1, backgroundColor: '#fff'},
+  safeArea: {flex: 1, backgroundColor: colors.white},
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -272,11 +273,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.divider,
   },
-  closeIcon: {fontSize: 22, color: '#333'},
+  closeIcon: {fontSize: 22, color: colors.textPrimary},
   title: {fontSize: 18, fontWeight: 'bold'},
-  addIcon: {fontSize: 26, color: '#2196F3', fontWeight: 'bold'},
+  addIcon: {fontSize: 26, color: colors.primary, fontWeight: 'bold'},
 
   addRow: {
     flexDirection: 'row',
@@ -287,7 +288,7 @@ const styles = StyleSheet.create({
   itemWrapper: {
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f2f2f2',
+    borderBottomColor: colors.dividerLight,
   },
   itemRow: {
     flexDirection: 'row',
@@ -297,11 +298,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
     alignItems: 'center',
   },
-  orderArrow: {fontSize: 14, color: '#2196F3', paddingVertical: 2},
-  orderArrowDisabled: {color: '#ccc'},
+  orderArrow: {fontSize: 14, color: colors.primary, paddingVertical: 2},
+  orderArrowDisabled: {color: colors.border},
   item: {flex: 1, paddingVertical: 14},
-  itemText: {fontSize: 16, color: '#333'},
-  coefficientText: {fontSize: 12, color: '#888', marginTop: 2},
+  itemText: {fontSize: 16, color: colors.textPrimary},
+  coefficientText: {fontSize: 12, color: colors.textPlaceholder, marginTop: 2},
 
   editRow: {
     flexDirection: 'row',
@@ -313,27 +314,27 @@ const styles = StyleSheet.create({
     height: 44,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 12,
     marginRight: 8,
-    color: '#000',
-    backgroundColor: '#fff',
+    color: colors.black,
+    backgroundColor: colors.white,
   },
   coefficientInput: {
     width: 70,
     height: 44,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 8,
     marginRight: 8,
-    color: '#000',
-    backgroundColor: '#fff',
+    color: colors.black,
+    backgroundColor: colors.white,
   },
   confirmButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: colors.success,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -341,17 +342,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 8,
   },
-  confirmButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 18},
+  confirmButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 18},
   deleteButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#e53935',
+    borderColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteButtonText: {color: '#e53935', fontWeight: 'bold', fontSize: 18},
+  deleteButtonText: {color: colors.danger, fontWeight: 'bold', fontSize: 18},
 
-  emptyText: {textAlign: 'center', color: '#999', marginTop: 20},
+  emptyText: {textAlign: 'center', color: colors.textPlaceholder, marginTop: 20},
 });

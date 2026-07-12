@@ -18,20 +18,17 @@ import {
 } from '../services/workoutDays';
 import {
   computeDayRating,
+  computeDayRepsByExercise,
   saveDayRating,
   deleteDayRating,
   upsertProfileNickname,
 } from '../services/ratings';
 import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
+import colors from '../theme/colors';
 
 const MAX_REPS = 5000;
 
-// variant="log" (по умолчанию) — экран "Тренировка": упражнения всегда
-// напрямую редактируются, статус — снизу. Как было изначально.
-// variant="history" — экран "История": статус виден сразу сверху,
-// список упражнений — сначала как готовый список + кнопка
-// "Редактировать".
 export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const {exerciseNames, exerciseCoefficients, loadingExercises} =
     useExercises();
@@ -43,9 +40,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
-
-  // Актуально только для variant="history": показывать готовый список
-  // или форму редактирования упражнений.
   const [isEditingExercises, setIsEditingExercises] = useState(false);
 
   // Список упражнений, реально сохранённых в базе на момент последней
@@ -228,7 +222,8 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       // Рейтинг для таблицы лидеров — в фоне, не задерживая сохранение
       // личной тренировки.
       const rating = computeDayRating(exercisesList, exerciseCoefficients);
-      saveDayRating(userId, dateKey, rating).catch(error =>
+      const byExercise = computeDayRepsByExercise(exercisesList);
+      saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
         console.error('Рейтинг дня синхронизируется позже:', error),
       );
 
@@ -402,8 +397,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   ) : null;
 
-  // --- variant="log": как было изначально — упражнения сверху,
-  // всегда напрямую редактируются, статус снизу ---
   if (variant === 'log') {
     return (
       <View>
@@ -421,8 +414,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     );
   }
 
-  // --- variant="history": статус виден всегда сразу сверху,
-  // упражнения — список + кнопка "Редактировать" ---
   const showExerciseEditor = isEditingExercises || !hasReps;
 
   return (
@@ -469,22 +460,22 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 const styles = StyleSheet.create({
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
 
-  statusTitle: {fontSize: 15, color: '#777', marginBottom: 8},
+  statusTitle: {fontSize: 15, color: colors.textMuted, marginBottom: 8},
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
   statusButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     marginRight: 8,
     marginBottom: 8,
   },
-  statusButtonActive: {backgroundColor: '#2196F3', borderColor: '#2196F3'},
-  statusButtonText: {color: '#333', fontSize: 14},
-  statusButtonTextActive: {color: '#fff'},
+  statusButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
+  statusButtonText: {color: colors.textPrimary, fontSize: 14},
+  statusButtonTextActive: {color: colors.white},
 
-  divider: {height: 1, backgroundColor: '#eee', marginVertical: 16},
+  divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
 
   exerciseList: {flexDirection: 'column'},
   exerciseButton: {
@@ -492,20 +483,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     marginBottom: 8,
   },
-  exerciseButtonSelected: {borderColor: '#2196F3'},
+  exerciseButtonSelected: {borderColor: colors.primary},
   exerciseHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  exerciseButtonText: {color: '#333', fontSize: 16},
-  exerciseButtonTextSelected: {color: '#2196F3'},
+  exerciseButtonText: {color: colors.textPrimary, fontSize: 16},
+  exerciseButtonTextSelected: {color: colors.primary},
   totalRow: {flexDirection: 'row', alignItems: 'center'},
-  totalText: {fontSize: 15, color: '#555', marginRight: 10},
-  removeCross: {fontSize: 18, color: '#e53935', fontWeight: 'bold'},
+  totalText: {fontSize: 15, color: colors.textSecondary, marginRight: 10},
+  removeCross: {fontSize: 18, color: colors.danger, fontWeight: 'bold'},
 
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
   inlineInput: {
@@ -513,45 +504,45 @@ const styles = StyleSheet.create({
     height: 44,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 12,
     marginRight: 8,
-    color: '#000',
-    backgroundColor: '#fff',
+    color: colors.black,
+    backgroundColor: colors.white,
   },
   confirmButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: colors.success,
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  confirmButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 18},
+  confirmButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 18},
 
   saveButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: colors.primary,
     padding: 14,
     borderRadius: 8,
     marginTop: 20,
     alignItems: 'center',
   },
-  saveButtonDisabled: {backgroundColor: '#B0BEC5'},
-  saveButtonText: {color: '#fff', fontWeight: 'bold', fontSize: 16},
+  saveButtonDisabled: {backgroundColor: colors.disabled},
+  saveButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 16},
 
   cancelEditButton: {paddingVertical: 12, alignItems: 'center'},
-  cancelEditButtonText: {color: '#777', fontSize: 14},
+  cancelEditButtonText: {color: colors.textMuted, fontSize: 14},
 
-  readOnlyExerciseText: {fontSize: 15, color: '#333', marginBottom: 4},
+  readOnlyExerciseText: {fontSize: 15, color: colors.textPrimary, marginBottom: 4},
   editButton: {
     marginTop: 16,
-    backgroundColor: '#2196F3',
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
   },
-  editButtonText: {color: '#fff', fontWeight: 'bold'},
+  editButtonText: {color: colors.white, fontWeight: 'bold'},
 
   deleteSection: {marginTop: 40},
   deleteButton: {
@@ -559,7 +550,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e53935',
+    borderColor: colors.danger,
   },
-  deleteButtonText: {color: '#e53935', fontWeight: 'bold'},
+  deleteButtonText: {color: colors.danger, fontWeight: 'bold'},
 });

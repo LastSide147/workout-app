@@ -8,6 +8,7 @@ import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
 import {getDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
 import useExercises from '../hooks/useExercises';
+import colors from '../theme/colors';
 
 LocaleConfig.locales['ru'] = {
   monthNames: [
@@ -82,7 +83,7 @@ export default function WorkoutHistoryScreen() {
     selected: true,
     selectedColor: marked[selectedDate]
       ? marked[selectedDate].selectedColor
-      : '#2196F3',
+      : colors.primary,
   };
 
   const handleDayPress = day => {
@@ -126,7 +127,7 @@ function LegendItem({color, label}) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: '#fff'},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
   legend: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 12},
   legendItem: {
@@ -136,6 +137,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   legendDot: {width: 10, height: 10, borderRadius: 5, marginRight: 6},
-  legendText: {fontSize: 13, color: '#555'},
+  legendText: {fontSize: 13, color: colors.textSecondary},
   details: {marginTop: 20, paddingBottom: 40},
 });

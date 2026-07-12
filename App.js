@@ -1,16 +1,18 @@
 import React, {useEffect, useState} from 'react';
-import {Text, View, ActivityIndicator} from 'react-native';
+import {View, ActivityIndicator} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
 import {UpdatesProvider} from './src/context/UpdatesContext';
 import UpdateBanner from './src/components/UpdateBanner';
+import CustomTabBar from './src/components/CustomTabBar';
 import AuthScreen from './src/screens/AuthScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutLogScreen from './src/screens/WorkoutLogScreen';
 import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
+import colors from './src/theme/colors';
 
 const Tab = createBottomTabNavigator();
 
@@ -36,7 +38,7 @@ export default function App() {
   if (initializing) {
     return (
       <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -58,49 +60,27 @@ export default function App() {
         <NavigationContainer>
           <UpdateBanner />
           <Tab.Navigator
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: '#2196F3',
-            }}>
+            screenOptions={{headerShown: false}}
+            tabBar={props => <CustomTabBar {...props} />}>
             <Tab.Screen
               name="Log"
               component={WorkoutLogScreen}
-              options={{
-                title: 'Тренировка',
-                tabBarIcon: ({color}) => (
-                  <Text style={{color, fontSize: 20}}>🏋️</Text>
-                ),
-              }}
+              options={{title: 'Тренировка'}}
             />
             <Tab.Screen
               name="History"
               component={WorkoutHistoryScreen}
-              options={{
-                title: 'История',
-                tabBarIcon: ({color}) => (
-                  <Text style={{color, fontSize: 20}}>📅</Text>
-                ),
-              }}
+              options={{title: 'История'}}
             />
             <Tab.Screen
               name="Statistics"
               component={StatisticsScreen}
-              options={{
-                title: 'Статистика',
-                tabBarIcon: ({color}) => (
-                  <Text style={{color, fontSize: 20}}>📊</Text>
-                ),
-              }}
+              options={{title: 'Статистика'}}
             />
             <Tab.Screen
               name="Profile"
               component={ProfileScreen}
-              options={{
-                title: 'Профиль',
-                tabBarIcon: ({color}) => (
-                  <Text style={{color, fontSize: 20}}>👤</Text>
-                ),
-              }}
+              options={{title: 'Профиль'}}
             />
           </Tab.Navigator>
         </NavigationContainer>

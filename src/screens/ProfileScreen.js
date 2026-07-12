@@ -13,6 +13,7 @@ import {logout} from '../services/auth';
 import useUserRole from '../hooks/useUserRole';
 import ExerciseManagementScreen from './ExerciseManagementScreen';
 import {useUpdatesContext} from '../context/UpdatesContext';
+import colors from '../theme/colors';
 
 export default function ProfileScreen() {
   const user = getCurrentUser();
@@ -99,7 +100,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {flex: 1, backgroundColor: '#fff'},
+  safeArea: {flex: 1, backgroundColor: colors.white},
   container: {
     flex: 1,
     padding: 16,
@@ -115,34 +116,34 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#e53935',
+    borderColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoutIcon: {
     fontSize: 20,
-    color: '#e53935',
+    color: colors.danger,
     fontWeight: 'bold',
   },
-  email: {fontSize: 16, color: '#555', marginBottom: 30},
+  email: {fontSize: 16, color: colors.textSecondary, marginBottom: 30},
 
   manageButton: {
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: colors.primary,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  manageButtonText: {color: '#2196F3', fontWeight: 'bold'},
+  manageButtonText: {color: colors.primary, fontWeight: 'bold'},
 
   updatesSection: {marginTop: 30},
-  updatesTitle: {fontSize: 15, color: '#777', marginBottom: 8},
-  updatesStatusText: {fontSize: 14, color: '#999'},
+  updatesTitle: {fontSize: 15, color: colors.textMuted, marginBottom: 8},
+  updatesStatusText: {fontSize: 14, color: colors.textPlaceholder},
   updateButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: colors.success,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  updateButtonText: {color: '#fff', fontWeight: 'bold'},
+  updateButtonText: {color: colors.white, fontWeight: 'bold'},
 });

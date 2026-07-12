@@ -9,11 +9,13 @@ import {
   Modal,
   SafeAreaView,
 } from 'react-native';
+import {useFocusEffect} from '@react-navigation/native';
 import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
 import {fetchLeaderboard} from '../services/ratings';
 import {getDateKey} from '../utils/date';
 import useExercises from '../hooks/useExercises';
+import colors from '../theme/colors';
 
 const PERIODS = [
   {key: 'day', label: 'День'},
@@ -22,6 +24,8 @@ const PERIODS = [
   {key: '3months', label: '3 месяца'},
   {key: 'year', label: 'Год'},
 ];
+
+const ALL_EXERCISES_OPTION = 'Все упражнения';
 
 function toDateKey(date) {
   const y = date.getFullYear();
@@ -80,42 +84,92 @@ function PeriodSelector({value, onChange, testIdPrefix}) {
   );
 }
 
-// Модальное окно "Коэффициенты упражнений" — только просмотр,
-// ничего нельзя изменить (изменение коэффициентов остаётся
-// исключительно на экране управления упражнениями у мастера).
+// Компактное окно по центру экрана (не на весь экран), размер
+// подстраивается под количество упражнений — используется и для
+// коэффициентов, и для фильтра, чтобы выглядело одинаково.
+function CenteredDropdownModal({visible, onClose, title, children}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}>
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={styles.dropdownCard}>
+          <View style={styles.dropdownHeader}>
+            <Text style={styles.dropdownTitle}>{title}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Text style={styles.modalCloseIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {children}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 function CoefficientsModal({visible, onClose, exercises}) {
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.modalSafeArea}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Коэффициенты упражнений</Text>
-          <TouchableOpacity
-            onPress={onClose}
-            testID="statistics-coefficients-close-button">
-            <Text style={styles.modalCloseIcon}>✕</Text>
-          </TouchableOpacity>
-        </View>
+    <CenteredDropdownModal
+      visible={visible}
+      onClose={onClose}
+      title="Коэффициенты упражнений">
+      <FlatList
+        data={exercises}
+        keyExtractor={item => item.id}
+        testID="statistics-coefficients-list"
+        style={styles.dropdownList}
+        renderItem={({item}) => (
+          <View style={styles.modalRow}>
+            <Text style={styles.modalExerciseName}>{item.name}</Text>
+            <Text style={styles.modalCoefficientValue}>
+              {typeof item.coefficient === 'number' ? item.coefficient : '—'}
+            </Text>
+          </View>
+        )}
+        ListEmptyComponent={<Text style={styles.emptyText}>Список упражнений пуст</Text>}
+      />
+    </CenteredDropdownModal>
+  );
+}
 
-        <FlatList
-          data={exercises}
-          keyExtractor={item => item.id}
-          testID="statistics-coefficients-list"
-          renderItem={({item}) => (
-            <View style={styles.modalRow}>
-              <Text style={styles.modalExerciseName}>{item.name}</Text>
-              <Text style={styles.modalCoefficientValue}>
-                {typeof item.coefficient === 'number'
-                  ? item.coefficient
-                  : '—'}
+function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelect}) {
+  const options = [ALL_EXERCISES_OPTION, ...exerciseNames];
+
+  return (
+    <CenteredDropdownModal visible={visible} onClose={onClose} title="Фильтр по упражнению">
+      <FlatList
+        data={options}
+        keyExtractor={item => item}
+        testID="statistics-exercise-filter-list"
+        style={styles.dropdownList}
+        renderItem={({item}) => {
+          const isActive = item === selected;
+          return (
+            <TouchableOpacity
+              style={styles.modalOptionRow}
+              onPress={() => {
+                onSelect(item);
+                onClose();
+              }}
+              testID={`statistics-exercise-filter-option-${item}`}>
+              <Text
+                style={[
+                  styles.modalOptionText,
+                  isActive ? styles.modalOptionTextActive : null,
+                ]}>
+                {item}
               </Text>
-            </View>
-          )}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>Список упражнений пуст</Text>
-          }
-        />
-      </SafeAreaView>
-    </Modal>
+              {isActive ? <Text style={styles.modalOptionCheck}>✓</Text> : null}
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </CenteredDropdownModal>
   );
 }
 
@@ -125,6 +179,7 @@ export default function StatisticsScreen() {
 
   const [personalPeriod, setPersonalPeriod] = useState('week');
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('day');
+  const [leaderboardExercise, setLeaderboardExercise] = useState(ALL_EXERCISES_OPTION);
 
   const {exercises, exerciseNames, loadingExercises} = useExercises();
 
@@ -134,14 +189,9 @@ export default function StatisticsScreen() {
 
   const [leaderboard, setLeaderboard] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
-  // true — показанные данные рейтинга взяты из локального кэша, а
-  // не с сервера (то есть могут быть неактуальны без интернета).
-  const [leaderboardFromCache, setLeaderboardFromCache] = useState(false);
-  // Заполняется, только если данных о рейтинге нет вообще нигде —
-  // ни на сервере, ни в кэше (например, самый первый запуск офлайн).
-  const [leaderboardUnavailable, setLeaderboardUnavailable] = useState(false);
 
   const [coefficientsVisible, setCoefficientsVisible] = useState(false);
+  const [exerciseFilterVisible, setExerciseFilterVisible] = useState(false);
 
   useEffect(() => {
     let unsubscribe;
@@ -193,34 +243,27 @@ export default function StatisticsScreen() {
 
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
-    setLeaderboardUnavailable(false);
     try {
-      const {items, fromCache} = await fetchLeaderboard(
-        leaderboardStartKey,
-        todayKey,
-      );
-      setLeaderboard(items);
-      setLeaderboardFromCache(fromCache);
+      const filter =
+        leaderboardExercise === ALL_EXERCISES_OPTION ? null : leaderboardExercise;
+      const result = await fetchLeaderboard(leaderboardStartKey, todayKey, filter);
+      setLeaderboard(result);
     } catch (error) {
-      // Рейтинг — единственная часть приложения, которой обязательно
-      // нужен интернет (данные всех пользователей). Если офлайн и
-      // локального кэша тоже нет, честно показываем это, а не
-      // "крутим" индикатор бесконечно.
       console.error('Ошибка загрузки рейтинга:', error);
-      setLeaderboard([]);
-      setLeaderboardUnavailable(true);
     } finally {
       setLoadingLeaderboard(false);
     }
-  }, [leaderboardStartKey]);
+  }, [leaderboardStartKey, leaderboardExercise]);
 
   useEffect(() => {
     loadTotals();
   }, [loadTotals]);
 
-  useEffect(() => {
-    loadLeaderboard();
-  }, [loadLeaderboard]);
+  useFocusEffect(
+    useCallback(() => {
+      loadLeaderboard();
+    }, [loadLeaderboard]),
+  );
 
   const list = exerciseNames
     .filter(exercise => totals[exercise] > 0)
@@ -275,19 +318,16 @@ export default function StatisticsScreen() {
         testIdPrefix="statistics-leaderboard-period"
       />
 
-      {leaderboardFromCache && !loadingLeaderboard && leaderboard.length > 0 ? (
-        <Text style={styles.offlineNote}>
-          Нет подключения к интернету — показаны последние сохранённые данные
-        </Text>
-      ) : null}
+      <TouchableOpacity
+        style={styles.exerciseFilterButton}
+        onPress={() => setExerciseFilterVisible(true)}
+        testID="statistics-exercise-filter-button">
+        <Text style={styles.exerciseFilterButtonText}>{leaderboardExercise}</Text>
+        <Text style={styles.exerciseFilterArrow}>▾</Text>
+      </TouchableOpacity>
 
       {loadingLeaderboard ? (
         <ActivityIndicator style={styles.loader} />
-      ) : leaderboardUnavailable ? (
-        <Text style={styles.emptyText}>
-          Рейтинг недоступен без интернета. Ваши тренировки уже сохранены и
-          попадут в общий зачёт автоматически, когда появится связь.
-        </Text>
       ) : leaderboard.length === 0 ? (
         <Text style={styles.emptyText}>Нет данных за этот период</Text>
       ) : (
@@ -309,12 +349,20 @@ export default function StatisticsScreen() {
         onClose={() => setCoefficientsVisible(false)}
         exercises={exercises}
       />
+
+      <ExerciseFilterModal
+        visible={exerciseFilterVisible}
+        onClose={() => setExerciseFilterVisible(false)}
+        exerciseNames={exerciseNames}
+        selected={leaderboardExercise}
+        onSelect={setLeaderboardExercise}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: '#fff'},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
   title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
   toggleRow: {flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16},
   toggleButton: {
@@ -322,15 +370,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     marginRight: 8,
     marginBottom: 8,
   },
-  toggleButtonActive: {backgroundColor: '#2196F3', borderColor: '#2196F3'},
-  toggleText: {color: '#333', fontSize: 13},
-  toggleTextActive: {color: '#fff'},
-  sectionTitle: {fontSize: 16, fontWeight: 'bold', marginTop: 12, marginBottom: 8, color: '#333'},
-  sectionTitleNoMargin: {fontSize: 16, fontWeight: 'bold', color: '#333'},
+  toggleButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
+  toggleText: {color: colors.textPrimary, fontSize: 13},
+  toggleTextActive: {color: colors.white},
+  sectionTitle: {fontSize: 16, fontWeight: 'bold', marginTop: 12, marginBottom: 8, color: colors.textPrimary},
+  sectionTitleNoMargin: {fontSize: 16, fontWeight: 'bold', color: colors.textPrimary},
   leaderboardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -338,24 +386,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 8,
   },
-  infoIcon: {fontSize: 20, color: '#2196F3'},
+  infoIcon: {fontSize: 20, color: colors.primary},
   loader: {marginTop: 12},
-  offlineNote: {
-    fontSize: 12,
-    color: '#FF9800',
-    marginBottom: 8,
-  },
-  emptyText: {fontSize: 14, color: '#999', marginTop: 4, marginBottom: 12},
+  emptyText: {fontSize: 14, color: colors.textPlaceholder, marginTop: 4, marginBottom: 12},
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.divider,
   },
-  rowHighlighted: {backgroundColor: '#E3F2FD'},
-  exerciseText: {fontSize: 16, color: '#333'},
-  repsText: {fontSize: 16, fontWeight: 'bold', color: '#2196F3'},
+  rowHighlighted: {backgroundColor: colors.primaryLight},
+  exerciseText: {fontSize: 16, color: colors.textPrimary},
+  repsText: {fontSize: 16, fontWeight: 'bold', color: colors.primary},
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -363,31 +406,74 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 4,
     borderTopWidth: 2,
-    borderTopColor: '#2196F3',
+    borderTopColor: colors.primary,
   },
   totalLabel: {fontSize: 18, fontWeight: 'bold'},
-  totalValue: {fontSize: 18, fontWeight: 'bold', color: '#2196F3'},
+  totalValue: {fontSize: 18, fontWeight: 'bold', color: colors.primary},
 
-  modalSafeArea: {flex: 1, backgroundColor: '#fff'},
-  modalHeader: {
+  exerciseFilterButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  exerciseFilterButtonText: {fontSize: 15, color: colors.textPrimary},
+  exerciseFilterArrow: {fontSize: 14, color: colors.textMuted},
+
+  // Полупрозрачный фон на весь экран — тап по нему закрывает окно.
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Само окно — по центру, ширина фиксированная, высота растёт под
+  // содержимое, но не больше 60% экрана (дальше появится прокрутка).
+  dropdownCard: {
+    width: '82%',
+    maxHeight: '60%',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  dropdownHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.divider,
   },
-  modalTitle: {fontSize: 18, fontWeight: 'bold'},
-  modalCloseIcon: {fontSize: 22, color: '#333'},
+  dropdownTitle: {fontSize: 16, fontWeight: 'bold'},
+  dropdownList: {flexGrow: 0},
+
+  modalCloseIcon: {fontSize: 18, color: colors.textPrimary},
   modalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f2f2f2',
+    borderBottomColor: colors.dividerLight,
   },
-  modalExerciseName: {fontSize: 16, color: '#333'},
-  modalCoefficientValue: {fontSize: 16, fontWeight: 'bold', color: '#2196F3'},
+  modalExerciseName: {fontSize: 16, color: colors.textPrimary},
+  modalCoefficientValue: {fontSize: 16, fontWeight: 'bold', color: colors.primary},
+  modalOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dividerLight,
+  },
+  modalOptionText: {fontSize: 16, color: colors.textPrimary},
+  modalOptionTextActive: {color: colors.primary, fontWeight: 'bold'},
+  modalOptionCheck: {fontSize: 16, color: colors.primary, fontWeight: 'bold'},
 });

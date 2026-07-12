@@ -1,6 +1,7 @@
 import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {useUpdatesContext} from '../context/UpdatesContext';
+import colors from '../theme/colors';
 
 export default function UpdateBanner() {
   const {showBanner, dismiss} = useUpdatesContext();
@@ -29,10 +30,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#2196F3',
+    backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
-  text: {color: '#fff', fontSize: 13, flex: 1, marginRight: 12},
-  dismissIcon: {color: '#fff', fontSize: 16, fontWeight: 'bold'},
+  text: {color: colors.white, fontSize: 13, flex: 1, marginRight: 12},
+  dismissIcon: {color: colors.white, fontSize: 16, fontWeight: 'bold'},
 });

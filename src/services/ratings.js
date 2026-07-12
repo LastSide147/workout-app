@@ -15,8 +15,7 @@ function profileDoc(userId) {
   return firestore().collection('profiles').doc(userId);
 }
 
-// Сумма (повторения × коэффициент) по всем упражнениям дня.
-// Упражнение без коэффициента (мастер ещё не задал) в сумму не входит.
+// Общий рейтинг (для "Все упражнения") — с учётом коэффициентов.
 export function computeDayRating(exercisesList, exerciseCoefficients) {
   return exercisesList.reduce((total, item) => {
     const coefficient = exerciseCoefficients[item.exercise];
@@ -27,9 +26,21 @@ export function computeDayRating(exercisesList, exerciseCoefficients) {
   }, 0);
 }
 
-export async function saveDayRating(userId, dateKey, rating) {
+// Повторения по каждому упражнению за день — БЕЗ коэффициента.
+// Используется, когда выбран фильтр по конкретному упражнению —
+// там нужен топ по количеству повторений, а не взвешенное число.
+export function computeDayRepsByExercise(exercisesList) {
+  const byExercise = {};
+  exercisesList.forEach(item => {
+    byExercise[item.exercise] = item.reps;
+  });
+  return byExercise;
+}
+
+export async function saveDayRating(userId, dateKey, rating, byExercise) {
   await ratingDayDoc(userId, dateKey).set({
     rating,
+    byExercise: byExercise || {},
     date: dateKey,
     updatedAt: firestore.FieldValue.serverTimestamp(),
   });
@@ -39,8 +50,6 @@ export async function deleteDayRating(userId, dateKey) {
   await ratingDayDoc(userId, dateKey).delete();
 }
 
-// Никнейм = часть email до "@". Для анонимных пользователей email
-// отсутствует, поэтому подставляем нейтральное имя на основе uid.
 export async function upsertProfileNickname(userId) {
   const user = getCurrentUser();
   const email = user && user.email;
@@ -55,21 +64,13 @@ export async function upsertProfileNickname(userId) {
   );
 }
 
-// Общий рейтинг за диапазон дат (startDateKey/endDateKey — строки
-// вида "2026-07-01").
-//
-// Рейтинг — единственная часть приложения, которой реально нужен
-// интернет (это данные ВСЕХ пользователей, их нельзя целиком
-// держать в локальном кэше одного телефона). Поэтому здесь не
-// маскируем офлайн под "всё в порядке", а честно возвращаем признак
-// fromCache, чтобы экран показал пользователю, что рейтинг может
-// быть устаревшим/недоступным без сети.
-//
-// Возвращает {items, fromCache}:
-//  - items — отсортированный список {userId, nickname, rating}
-//  - fromCache — true, если данные взяты не с сервера, а из
-//    локального кэша (значит, могут быть неактуальны)
-export async function fetchLeaderboard(startDateKey, endDateKey) {
+// exerciseFilter = null → общий рейтинг (сумма с коэффициентами).
+// exerciseFilter = "Отжимания" → топ по сумме сырых повторений
+// именно этого упражнения (без коэффициента).
+export async function fetchLeaderboard(startDateKey, endDateKey, exerciseFilter) {
+  // getWithOfflineFallback — чтобы экран статистики не "завис" на
+  // загрузке рейтинга без сети, а тихо показал последнюю кэшированную
+  // версию (см. services/offlineSync.js).
   const snapshot = await getWithOfflineFallback(
     firestore()
       .collectionGroup('days')
@@ -80,50 +81,39 @@ export async function fetchLeaderboard(startDateKey, endDateKey) {
   const totalsByUser = {};
   snapshot.docs.forEach(doc => {
     const userId = doc.ref.parent.parent.id;
-    const rating = doc.data().rating || 0;
-    totalsByUser[userId] = (totalsByUser[userId] || 0) + rating;
+    const data = doc.data();
+
+    const value = exerciseFilter
+      ? (data.byExercise && data.byExercise[exerciseFilter]) || 0
+      : data.rating || 0;
+
+    totalsByUser[userId] = (totalsByUser[userId] || 0) + value;
   });
 
-  const userIds = Object.keys(totalsByUser);
+  const userIds = Object.keys(totalsByUser).filter(id => totalsByUser[id] > 0);
   if (userIds.length === 0) {
-    return {items: [], fromCache: snapshot.metadata.fromCache};
+    return [];
   }
 
-  const profileSnapshots = await Promise.all(
+  const profiles = await Promise.all(
     userIds.map(userId => getWithOfflineFallback(profileDoc(userId))),
   );
 
-  const items = userIds.map((userId, index) => ({
+  const leaderboard = userIds.map((userId, index) => ({
     userId,
-    nickname: profileSnapshots[index].exists
-      ? profileSnapshots[index].data().nickname
+    nickname: profiles[index].exists
+      ? profiles[index].data().nickname
       : 'Без имени',
     rating: Math.round(totalsByUser[userId] * 100) / 100,
   }));
 
-  items.sort((a, b) => b.rating - a.rating);
-
-  const fromCache =
-    snapshot.metadata.fromCache ||
-    profileSnapshots.some(doc => doc.metadata.fromCache);
-
-  return {items, fromCache};
+  leaderboard.sort((a, b) => b.rating - a.rating);
+  return leaderboard;
 }
 
-// Пересчитывает рейтинг по ВСЕМ дням пользователя с текущими
-// коэффициентами упражнений и перезаписывает устаревшие значения.
-// Вызывается при открытии экрана истории (без await — см. вызов в
-// WorkoutHistoryScreen, это фоновая задача, а не то, чего пользователь
-// ждёт на экране).
-//
-// Дни обрабатываются параллельно (Promise.all), а не по очереди:
-// - getDayEntries уже не виснет офлайн (использует getWithOfflineFallback);
-// - но раньше запись saveDayRating(...) каждого дня ожидалась через
-//   await ПОСЛЕДОВАТЕЛЬНО — а .set() в Firestore тоже не завершает
-//   Promise без ответа сервера. Офлайн это означало, что цикл
-//   застревал на первом же дне и остальные дни вообще не
-//   пересчитывались. saveWithOfflineFallback снимает это ограничение
-//   для каждого дня независимо.
+// Дни обрабатываются параллельно (Promise.all), а не по очереди —
+// иначе один "зависший" офлайн день (ожидание ack от .set()) держал
+// бы весь цикл и остальные дни не пересчитывались бы вообще.
 export async function recalculateAllRatings(userId, days, exerciseCoefficients) {
   const dateKeysWithWorkout = Object.keys(days).filter(
     dateKey => days[dateKey].hasExercises,
@@ -138,10 +128,14 @@ export async function recalculateAllRatings(userId, days, exerciseCoefficients) 
           reps: item.reps,
         }));
         const rating = computeDayRating(exercisesList, exerciseCoefficients);
-        await saveWithOfflineFallback(saveDayRating(userId, dateKey, rating), {
-          onBackgroundError: error =>
-            console.error(`Рейтинг за ${dateKey} не принят сервером:`, error),
-        });
+        const byExercise = computeDayRepsByExercise(exercisesList);
+        await saveWithOfflineFallback(
+          saveDayRating(userId, dateKey, rating, byExercise),
+          {
+            onBackgroundError: error =>
+              console.error(`Рейтинг за ${dateKey} не принят сервером:`, error),
+          },
+        );
       } catch (error) {
         console.error(`Ошибка пересчёта рейтинга за ${dateKey}:`, error);
       }

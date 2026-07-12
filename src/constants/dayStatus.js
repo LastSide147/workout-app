@@ -1,3 +1,5 @@
+import colors from '../theme/colors';
+
 export const DAY_STATUS = {
   SKIPPED: 'skipped',
   WEEKEND: 'weekend',
@@ -11,8 +13,8 @@ export const STATUS_LABELS = {
 };
 
 export const STATUS_COLORS = {
-  workout: '#4CAF50',
-  [DAY_STATUS.SKIPPED]: '#FF9800',
-  [DAY_STATUS.WEEKEND]: '#9E9E9E',
-  [DAY_STATUS.INJURY]: '#e53935',
+  workout: colors.success,
+  [DAY_STATUS.SKIPPED]: colors.warning,
+  [DAY_STATUS.WEEKEND]: colors.statusWeekend,
+  [DAY_STATUS.INJURY]: colors.danger,
 };
