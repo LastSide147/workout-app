@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import {
   deleteDayRating,
   upsertProfileNickname,
 } from '../services/ratings';
+import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
 
 const MAX_REPS = 5000;
@@ -47,6 +48,12 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   // или форму редактирования упражнений.
   const [isEditingExercises, setIsEditingExercises] = useState(false);
 
+  // Список упражнений, реально сохранённых в базе на момент последней
+  // загрузки/сохранения дня. Нужен, чтобы при следующем сохранении
+  // понять, какие записи удалить, БЕЗ повторного чтения с сервера —
+  // именно на таком чтении раньше зависала кнопка сохранения офлайн.
+  const originalNamesRef = useRef([]);
+
   useEffect(() => {
     if (userId) {
       upsertProfileNickname(userId).catch(error =>
@@ -69,6 +76,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         repsMap[item.exercise] = item.reps;
       });
       setExerciseReps(repsMap);
+      originalNamesRef.current = entries.map(item => item.exercise);
 
       const day = await getDay(userId, dateKey);
       setDayStatus(day ? day.status || null : null);
@@ -144,12 +152,25 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setIsEditingExercises(false);
 
     try {
-      if (newStatus === null) {
-        await clearDay(userId, dateKey);
-      } else {
-        await setStatusForDate(userId, dateKey, newStatus);
+      const writePromise =
+        newStatus === null
+          ? clearDay(userId, dateKey, originalNamesRef.current)
+          : setStatusForDate(userId, dateKey, newStatus, originalNamesRef.current);
+
+      // Не ждём подтверждение сервера бесконечно — офлайн запись
+      // уже применена локально (детали в services/offlineSync.js).
+      const result = await saveWithOfflineFallback(writePromise);
+      if (result.error) {
+        throw result.error;
       }
-      await deleteDayRating(userId, dateKey);
+      originalNamesRef.current = [];
+
+      // Рейтинг нужен только таблице лидеров (ей и так нужен интернет) —
+      // удаляем в фоне, не блокируя экран.
+      deleteDayRating(userId, dateKey).catch(error =>
+        console.error('Удаление рейтинга дня отложено до сети:', error),
+      );
+
       setIsDirty(false);
       if (onSaved) {
         onSaved();
@@ -189,14 +210,36 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
     setSaving(true);
     try {
-      await saveExercisesForDate(userId, dateKey, exercisesList);
+      // Личная статистика должна сохраняться и офлайн —
+      // saveWithOfflineFallback не даёт кнопке зависнуть без сети.
+      const result = await saveWithOfflineFallback(
+        saveExercisesForDate(
+          userId,
+          dateKey,
+          exercisesList,
+          originalNamesRef.current,
+        ),
+      );
+      if (result.error) {
+        throw result.error;
+      }
+      originalNamesRef.current = exercisesList.map(item => item.exercise);
 
+      // Рейтинг для таблицы лидеров — в фоне, не задерживая сохранение
+      // личной тренировки.
       const rating = computeDayRating(exercisesList, exerciseCoefficients);
-      await saveDayRating(userId, dateKey, rating);
+      saveDayRating(userId, dateKey, rating).catch(error =>
+        console.error('Рейтинг дня синхронизируется позже:', error),
+      );
 
       setIsDirty(false);
       setIsEditingExercises(false);
-      Alert.alert('Готово', 'Тренировка сохранена');
+      Alert.alert(
+        'Готово',
+        result.pending
+          ? 'Тренировка сохранена на устройстве. Отправится на сервер автоматически, когда появится интернет.'
+          : 'Тренировка сохранена',
+      );
       if (onSaved) {
         onSaved();
       }
@@ -215,8 +258,18 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         style: 'destructive',
         onPress: async () => {
           try {
-            await clearDay(userId, dateKey);
-            await deleteDayRating(userId, dateKey);
+            const result = await saveWithOfflineFallback(
+              clearDay(userId, dateKey, originalNamesRef.current),
+            );
+            if (result.error) {
+              throw result.error;
+            }
+            originalNamesRef.current = [];
+
+            deleteDayRating(userId, dateKey).catch(error =>
+              console.error('Удаление рейтинга дня отложено до сети:', error),
+            );
+
             setExerciseReps({});
             setDayStatus(null);
             setIsDirty(false);
