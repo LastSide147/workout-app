@@ -9,7 +9,8 @@
   "owner": "artemzems-team",
   "runtimeVersion": "1.0.0",
   "updates": {
-    "url": "https://u.expo.dev/61f4feca-0960-4b26-9a03-f991bc135253"
+    "url": "https://u.expo.dev/61f4feca-0960-4b26-9a03-f991bc135253",
+    "checkAutomatically": "NEVER"
   },
   "android": {},
   "ios": {}

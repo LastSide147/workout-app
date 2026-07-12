@@ -12,17 +12,30 @@ import {getCurrentUser} from '../services/firebase';
 import {logout} from '../services/auth';
 import useUserRole from '../hooks/useUserRole';
 import ExerciseManagementScreen from './ExerciseManagementScreen';
+import {useUpdatesContext} from '../context/UpdatesContext';
 
 export default function ProfileScreen() {
   const user = getCurrentUser();
   const {isMaster} = useUserRole();
   const [managementVisible, setManagementVisible] = useState(false);
+  const {updateAvailable, checking, applyUpdate} = useUpdatesContext();
 
   const handleLogout = () => {
     Alert.alert('Выйти из аккаунта', 'Вы уверены?', [
       {text: 'Отмена', style: 'cancel'},
       {text: 'Выйти', style: 'destructive', onPress: logout},
     ]);
+  };
+
+  const handleApplyUpdate = () => {
+    Alert.alert(
+      'Обновить приложение',
+      'Приложение перезапустится, чтобы применить обновление. Продолжить?',
+      [
+        {text: 'Отмена', style: 'cancel'},
+        {text: 'Обновить', onPress: applyUpdate},
+      ],
+    );
   };
 
   return (
@@ -52,6 +65,25 @@ export default function ProfileScreen() {
             <Text style={styles.manageButtonText}>Управление упражнениями</Text>
           </TouchableOpacity>
         ) : null}
+
+        <View style={styles.updatesSection}>
+          <Text style={styles.updatesTitle}>Обновления</Text>
+
+          {checking ? (
+            <Text style={styles.updatesStatusText}>Проверка обновлений...</Text>
+          ) : updateAvailable ? (
+            <TouchableOpacity
+              style={styles.updateButton}
+              onPress={handleApplyUpdate}
+              testID="profile-apply-update-button">
+              <Text style={styles.updateButtonText}>
+                Установить обновление
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.updatesStatusText}>У вас последняя версия</Text>
+          )}
+        </View>
       </View>
 
       <Modal
@@ -102,4 +134,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   manageButtonText: {color: '#2196F3', fontWeight: 'bold'},
+
+  updatesSection: {marginTop: 30},
+  updatesTitle: {fontSize: 15, color: '#777', marginBottom: 8},
+  updatesStatusText: {fontSize: 14, color: '#999'},
+  updateButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  updateButtonText: {color: '#fff', fontWeight: 'bold'},
 });

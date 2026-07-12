@@ -4,6 +4,8 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
+import {UpdatesProvider} from './src/context/UpdatesContext';
+import UpdateBanner from './src/components/UpdateBanner';
 import AuthScreen from './src/screens/AuthScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutLogScreen from './src/screens/WorkoutLogScreen';
@@ -47,56 +49,62 @@ export default function App() {
     return <AuthScreen pendingVerification={true} onVerified={handleVerified} />;
   }
 
+  // UpdatesProvider оборачивает именно авторизованную часть — проверка
+  // обновления запускается один раз, как только пользователь реально
+  // вошёл в приложение ("первый вход"), а не на экране логина.
   return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <Tab.Navigator
-          screenOptions={{
-            headerShown: false,
-            tabBarActiveTintColor: '#2196F3',
-          }}>
-          <Tab.Screen
-            name="Log"
-            component={WorkoutLogScreen}
-            options={{
-              title: 'Тренировка',
-              tabBarIcon: ({color}) => (
-                <Text style={{color, fontSize: 20}}>🏋️</Text>
-              ),
-            }}
-          />
-          <Tab.Screen
-            name="History"
-            component={WorkoutHistoryScreen}
-            options={{
-              title: 'История',
-              tabBarIcon: ({color}) => (
-                <Text style={{color, fontSize: 20}}>📅</Text>
-              ),
-            }}
-          />
-          <Tab.Screen
-            name="Statistics"
-            component={StatisticsScreen}
-            options={{
-              title: 'Статистика',
-              tabBarIcon: ({color}) => (
-                <Text style={{color, fontSize: 20}}>📊</Text>
-              ),
-            }}
-          />
-          <Tab.Screen
-            name="Profile"
-            component={ProfileScreen}
-            options={{
-              title: 'Профиль',
-              tabBarIcon: ({color}) => (
-                <Text style={{color, fontSize: 20}}>👤</Text>
-              ),
-            }}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </SafeAreaProvider>
+    <UpdatesProvider>
+      <SafeAreaProvider>
+        <NavigationContainer>
+          <UpdateBanner />
+          <Tab.Navigator
+            screenOptions={{
+              headerShown: false,
+              tabBarActiveTintColor: '#2196F3',
+            }}>
+            <Tab.Screen
+              name="Log"
+              component={WorkoutLogScreen}
+              options={{
+                title: 'Тренировка',
+                tabBarIcon: ({color}) => (
+                  <Text style={{color, fontSize: 20}}>🏋️</Text>
+                ),
+              }}
+            />
+            <Tab.Screen
+              name="History"
+              component={WorkoutHistoryScreen}
+              options={{
+                title: 'История',
+                tabBarIcon: ({color}) => (
+                  <Text style={{color, fontSize: 20}}>📅</Text>
+                ),
+              }}
+            />
+            <Tab.Screen
+              name="Statistics"
+              component={StatisticsScreen}
+              options={{
+                title: 'Статистика',
+                tabBarIcon: ({color}) => (
+                  <Text style={{color, fontSize: 20}}>📊</Text>
+                ),
+              }}
+            />
+            <Tab.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{
+                title: 'Профиль',
+                tabBarIcon: ({color}) => (
+                  <Text style={{color, fontSize: 20}}>👤</Text>
+                ),
+              }}
+            />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </SafeAreaProvider>
+    </UpdatesProvider>
   );
 }
