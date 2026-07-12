@@ -16,6 +16,7 @@ import {fetchLeaderboard} from '../services/ratings';
 import {getDateKey} from '../utils/date';
 import useExercises from '../hooks/useExercises';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 const PERIODS = [
   {key: 'day', label: 'День'},
@@ -123,6 +124,7 @@ function CoefficientsModal({visible, onClose, exercises}) {
         keyExtractor={item => item.id}
         testID="statistics-coefficients-list"
         style={styles.dropdownList}
+        showsVerticalScrollIndicator={false}
         renderItem={({item}) => (
           <View style={styles.modalRow}>
             <Text style={styles.modalExerciseName}>{item.name}</Text>
@@ -147,6 +149,7 @@ function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelec
         keyExtractor={item => item}
         testID="statistics-exercise-filter-list"
         style={styles.dropdownList}
+        showsVerticalScrollIndicator={false}
         renderItem={({item}) => {
           const isActive = item === selected;
           return (
@@ -273,76 +276,87 @@ export default function StatisticsScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Статистика</Text>
 
-      <Text style={styles.sectionTitle}>Мои упражнения</Text>
-      <PeriodSelector
-        value={personalPeriod}
-        onChange={setPersonalPeriod}
-        testIdPrefix="statistics-personal-period"
-      />
-
-      {loadingExercises || loadingTotals ? (
-        <Text style={styles.emptyText}>Загрузка...</Text>
-      ) : list.length === 0 ? (
-        <Text style={styles.emptyText}>Нет данных за этот период</Text>
-      ) : (
-        <FlatList
-          data={list}
-          keyExtractor={item => item.exercise}
-          renderItem={({item}) => (
-            <View style={styles.row}>
-              <Text style={styles.exerciseText}>{item.exercise}</Text>
-              <Text style={styles.repsText}>{item.reps}</Text>
-            </View>
-          )}
+      {/* Блок 1: личная статистика пользователя за выбранный период */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Мои упражнения</Text>
+        <PeriodSelector
+          value={personalPeriod}
+          onChange={setPersonalPeriod}
+          testIdPrefix="statistics-personal-period"
         />
-      )}
 
-      <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Всего</Text>
-        <Text style={styles.totalValue}>{overallTotal}</Text>
+        {loadingExercises || loadingTotals ? (
+          <Text style={styles.emptyText}>Загрузка...</Text>
+        ) : list.length === 0 ? (
+          <Text style={styles.emptyText}>Нет данных за этот период</Text>
+        ) : (
+          <FlatList
+            data={list}
+            keyExtractor={item => item.exercise}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={false}
+            renderItem={({item}) => (
+              <View style={styles.row}>
+                <Text style={styles.exerciseText}>{item.exercise}</Text>
+                <Text style={styles.repsText}>{item.reps}</Text>
+              </View>
+            )}
+          />
+        )}
+
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>Всего</Text>
+          <Text style={styles.totalValue}>{overallTotal}</Text>
+        </View>
       </View>
 
-      <View style={styles.leaderboardHeaderRow}>
-        <Text style={styles.sectionTitleNoMargin}>Рейтинг всех пользователей</Text>
+      {/* Блок 2: общий рейтинг всех пользователей — отдельная карточка,
+          явно отделённая от личной статистики выше */}
+      <View style={styles.sectionCard}>
+        <View style={styles.leaderboardHeaderRow}>
+          <Text style={styles.sectionTitleNoMargin}>Рейтинг всех пользователей</Text>
+          <TouchableOpacity
+            onPress={() => setCoefficientsVisible(true)}
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            testID="statistics-coefficients-info-button">
+            <Text style={styles.infoIcon}>ⓘ</Text>
+          </TouchableOpacity>
+        </View>
+
+        <PeriodSelector
+          value={leaderboardPeriod}
+          onChange={setLeaderboardPeriod}
+          testIdPrefix="statistics-leaderboard-period"
+        />
+
         <TouchableOpacity
-          onPress={() => setCoefficientsVisible(true)}
-          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-          testID="statistics-coefficients-info-button">
-          <Text style={styles.infoIcon}>ⓘ</Text>
+          style={styles.exerciseFilterButton}
+          onPress={() => setExerciseFilterVisible(true)}
+          testID="statistics-exercise-filter-button">
+          <Text style={styles.exerciseFilterButtonText}>{leaderboardExercise}</Text>
+          <Text style={styles.exerciseFilterArrow}>▾</Text>
         </TouchableOpacity>
+
+        {loadingLeaderboard ? (
+          <ActivityIndicator style={styles.loader} color={colors.primary} />
+        ) : leaderboard.length === 0 ? (
+          <Text style={styles.emptyText}>Нет данных за этот период</Text>
+        ) : (
+          <FlatList
+            data={leaderboard}
+            keyExtractor={item => item.userId}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={false}
+            renderItem={({item, index}) => (
+              <View
+                style={[styles.row, item.userId === userId ? styles.rowHighlighted : null]}>
+                <Text style={styles.exerciseText}>{index + 1}. {item.nickname}</Text>
+                <Text style={styles.repsText}>{item.rating}</Text>
+              </View>
+            )}
+          />
+        )}
       </View>
-
-      <PeriodSelector
-        value={leaderboardPeriod}
-        onChange={setLeaderboardPeriod}
-        testIdPrefix="statistics-leaderboard-period"
-      />
-
-      <TouchableOpacity
-        style={styles.exerciseFilterButton}
-        onPress={() => setExerciseFilterVisible(true)}
-        testID="statistics-exercise-filter-button">
-        <Text style={styles.exerciseFilterButtonText}>{leaderboardExercise}</Text>
-        <Text style={styles.exerciseFilterArrow}>▾</Text>
-      </TouchableOpacity>
-
-      {loadingLeaderboard ? (
-        <ActivityIndicator style={styles.loader} />
-      ) : leaderboard.length === 0 ? (
-        <Text style={styles.emptyText}>Нет данных за этот период</Text>
-      ) : (
-        <FlatList
-          data={leaderboard}
-          keyExtractor={item => item.userId}
-          renderItem={({item, index}) => (
-            <View
-              style={[styles.row, item.userId === userId ? styles.rowHighlighted : null]}>
-              <Text style={styles.exerciseText}>{index + 1}. {item.nickname}</Text>
-              <Text style={styles.repsText}>{item.rating}</Text>
-            </View>
-          )}
-        />
-      )}
 
       <CoefficientsModal
         visible={coefficientsVisible}
@@ -362,8 +376,21 @@ export default function StatisticsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
-  title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
+  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
+
+  sectionCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
   toggleRow: {flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16},
   toggleButton: {
     paddingVertical: 8,
@@ -371,45 +398,54 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.chip,
     marginRight: 8,
     marginBottom: 8,
   },
   toggleButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
-  toggleText: {color: colors.textPrimary, fontSize: 13},
+  toggleText: {...typography.buttonSmall, fontSize: 13, color: colors.textPrimary},
   toggleTextActive: {color: colors.white},
-  sectionTitle: {fontSize: 16, fontWeight: 'bold', marginTop: 12, marginBottom: 8, color: colors.textPrimary},
-  sectionTitleNoMargin: {fontSize: 16, fontWeight: 'bold', color: colors.textPrimary},
+  sectionTitle: {...typography.sectionTitle, marginBottom: 8, color: colors.textPrimary},
+  sectionTitleNoMargin: {...typography.sectionTitle, color: colors.textPrimary},
   leaderboardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
     marginBottom: 8,
   },
-  infoIcon: {fontSize: 20, color: colors.primary},
+  infoIcon: {fontSize: 20, color: colors.info},
   loader: {marginTop: 12},
-  emptyText: {fontSize: 14, color: colors.textPlaceholder, marginTop: 4, marginBottom: 12},
+  emptyText: {...typography.caption, fontSize: 14, color: colors.textPlaceholder, marginTop: 4, marginBottom: 12},
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 10,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  rowHighlighted: {backgroundColor: colors.primaryLight},
-  exerciseText: {fontSize: 16, color: colors.textPrimary},
-  repsText: {fontSize: 16, fontWeight: 'bold', color: colors.primary},
+  rowHighlighted: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 0,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    marginVertical: 2,
+  },
+  exerciseText: {...typography.bodyBold, color: colors.textPrimary},
+  repsText: {...typography.number, color: colors.primary},
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 14,
     marginTop: 4,
-    marginBottom: 4,
+    marginBottom: 0,
     borderTopWidth: 2,
     borderTopColor: colors.primary,
   },
-  totalLabel: {fontSize: 18, fontWeight: 'bold'},
-  totalValue: {fontSize: 18, fontWeight: 'bold', color: colors.primary},
+  totalLabel: {...typography.sectionTitle, fontSize: 18, color: colors.textPrimary},
+  totalValue: {...typography.number, fontSize: 18, color: colors.primary},
 
   exerciseFilterButton: {
     flexDirection: 'row',
@@ -417,27 +453,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.chip,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 12,
   },
-  exerciseFilterButtonText: {fontSize: 15, color: colors.textPrimary},
+  exerciseFilterButtonText: {...typography.body, fontSize: 15, color: colors.textPrimary},
   exerciseFilterArrow: {fontSize: 14, color: colors.textMuted},
 
-  // Полупрозрачный фон на весь экран — тап по нему закрывает окно.
   overlay: {
     flex: 1,
     backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Само окно — по центру, ширина фиксированная, высота растёт под
-  // содержимое, но не больше 60% экрана (дальше появится прокрутка).
   dropdownCard: {
     width: '82%',
     maxHeight: '60%',
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -450,7 +484,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  dropdownTitle: {fontSize: 16, fontWeight: 'bold'},
+  dropdownTitle: {...typography.sectionTitle, fontSize: 16, color: colors.textPrimary},
   dropdownList: {flexGrow: 0},
 
   modalCloseIcon: {fontSize: 18, color: colors.textPrimary},
@@ -462,8 +496,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.dividerLight,
   },
-  modalExerciseName: {fontSize: 16, color: colors.textPrimary},
-  modalCoefficientValue: {fontSize: 16, fontWeight: 'bold', color: colors.primary},
+  modalExerciseName: {...typography.body, color: colors.textPrimary},
+  modalCoefficientValue: {...typography.number, color: colors.primary},
   modalOptionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -473,7 +507,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.dividerLight,
   },
-  modalOptionText: {fontSize: 16, color: colors.textPrimary},
+  modalOptionText: {...typography.body, color: colors.textPrimary},
   modalOptionTextActive: {color: colors.primary, fontWeight: 'bold'},
   modalOptionCheck: {fontSize: 16, color: colors.primary, fontWeight: 'bold'},
 });

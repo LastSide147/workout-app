@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react';
-import {View, ActivityIndicator} from 'react-native';
+import {View, ActivityIndicator, StatusBar} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
-import {NavigationContainer} from '@react-navigation/native';
+import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
 import {UpdatesProvider} from './src/context/UpdatesContext';
@@ -15,6 +15,19 @@ import StatisticsScreen from './src/screens/StatisticsScreen';
 import colors from './src/theme/colors';
 
 const Tab = createBottomTabNavigator();
+
+const navigationTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    primary: colors.primary,
+    background: colors.background,
+    card: colors.surface,
+    text: colors.textPrimary,
+    border: colors.border,
+    notification: colors.danger,
+  },
+};
 
 export default function App() {
   const [initializing, setInitializing] = useState(true);
@@ -30,37 +43,48 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Вызывается кнопкой "Я подтвердил, продолжить" после явной проверки почты
   const handleVerified = () => {
     setEmailVerified(true);
   };
 
   if (initializing) {
     return (
-      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background}}>
+        <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   if (!user) {
-    return <AuthScreen pendingVerification={false} />;
+    return (
+      <>
+        <StatusBar barStyle="light-content" />
+        <AuthScreen pendingVerification={false} />
+      </>
+    );
   }
 
   if (!emailVerified) {
-    return <AuthScreen pendingVerification={true} onVerified={handleVerified} />;
+    return (
+      <>
+        <StatusBar barStyle="light-content" />
+        <AuthScreen pendingVerification={true} onVerified={handleVerified} />
+      </>
+    );
   }
 
-  // UpdatesProvider оборачивает именно авторизованную часть — проверка
-  // обновления запускается один раз, как только пользователь реально
-  // вошёл в приложение ("первый вход"), а не на экране логина.
   return (
     <UpdatesProvider>
       <SafeAreaProvider>
-        <NavigationContainer>
+        <NavigationContainer theme={navigationTheme}>
+          <StatusBar barStyle="light-content" />
           <UpdateBanner />
           <Tab.Navigator
-            screenOptions={{headerShown: false}}
+            screenOptions={{
+              headerShown: false,
+              animation: 'none',
+            }}
             tabBar={props => <CustomTabBar {...props} />}>
             <Tab.Screen
               name="Log"
@@ -87,4 +111,4 @@ export default function App() {
       </SafeAreaProvider>
     </UpdatesProvider>
   );
-}
+} 

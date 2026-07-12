@@ -2,6 +2,7 @@ import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {useUpdatesContext} from '../context/UpdatesContext';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 export default function UpdateBanner() {
   const {showBanner, dismiss} = useUpdatesContext();
@@ -34,6 +35,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
-  text: {color: colors.white, fontSize: 13, flex: 1, marginRight: 12},
+  text: {...typography.caption, fontSize: 13, color: colors.white, flex: 1, marginRight: 12},
   dismissIcon: {color: colors.white, fontSize: 16, fontWeight: 'bold'},
 });

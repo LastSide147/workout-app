@@ -9,6 +9,7 @@ import {getDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
 import useExercises from '../hooks/useExercises';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 LocaleConfig.locales['ru'] = {
   monthNames: [
@@ -91,10 +92,32 @@ export default function WorkoutHistoryScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.title}>История</Text>
 
-      <Calendar markedDates={marked} onDayPress={handleDayPress} firstDay={1} />
+      {/* Календарь — в отдельной скруглённой карточке, как остальные
+          функциональные блоки в приложении, а не просто на голом фоне */}
+      <View style={styles.calendarCard}>
+        <Calendar
+          markedDates={marked}
+          onDayPress={handleDayPress}
+          firstDay={1}
+          theme={{
+            backgroundColor: colors.surface,
+            calendarBackground: colors.surface,
+            textSectionTitleColor: colors.textMuted,
+            dayTextColor: colors.textPrimary,
+            todayTextColor: colors.primary,
+            selectedDayBackgroundColor: colors.primary,
+            selectedDayTextColor: colors.white,
+            monthTextColor: colors.textPrimary,
+            arrowColor: colors.primary,
+            textDisabledColor: colors.textPlaceholder,
+            dotColor: colors.primary,
+            selectedDotColor: colors.white,
+          }}
+        />
+      </View>
 
       <View style={styles.legend}>
         <LegendItem color={STATUS_COLORS.workout} label="Тренировка" />
@@ -127,9 +150,20 @@ function LegendItem({color, label}) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
-  title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
-  legend: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 12},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
+  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
+  calendarCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 8,
+    overflow: 'hidden',
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  legend: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 16},
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -137,6 +171,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   legendDot: {width: 10, height: 10, borderRadius: 5, marginRight: 6},
-  legendText: {fontSize: 13, color: colors.textSecondary},
+  legendText: {...typography.caption, color: colors.textSecondary},
   details: {marginTop: 20, paddingBottom: 40},
 });

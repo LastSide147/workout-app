@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {View, StyleSheet} from 'react-native';
+import {ScrollView, View, StyleSheet} from 'react-native';
 import {ensureSignedIn} from '../services/firebase';
 import DayEditor from '../components/DayEditor';
 import {getDateKey} from '../utils/date';
@@ -19,12 +19,12 @@ export default function WorkoutLogScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <DayEditor userId={userId} dateKey={todayKey} />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.white},
+  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
 });

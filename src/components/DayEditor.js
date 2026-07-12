@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
+import {useFocusEffect} from '@react-navigation/native';
+import {Ionicons} from '@expo/vector-icons';
 import useExercises from '../hooks/useExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
@@ -26,6 +28,7 @@ import {
 import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 const MAX_REPS = 5000;
 
@@ -42,11 +45,12 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const [isDirty, setIsDirty] = useState(false);
   const [isEditingExercises, setIsEditingExercises] = useState(false);
 
-  // Список упражнений, реально сохранённых в базе на момент последней
-  // загрузки/сохранения дня. Нужен, чтобы при следующем сохранении
-  // понять, какие записи удалить, БЕЗ повторного чтения с сервера —
-  // именно на таком чтении раньше зависала кнопка сохранения офлайн.
   const originalNamesRef = useRef([]);
+
+  const isDirtyRef = useRef(false);
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   useEffect(() => {
     if (userId) {
@@ -56,6 +60,20 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   }, [userId]);
 
+  const loadData = useCallback(async () => {
+    const entries = await getDayEntries(userId, dateKey);
+    const repsMap = {};
+    entries.forEach(item => {
+      repsMap[item.exercise] = item.reps;
+    });
+    setExerciseReps(repsMap);
+    originalNamesRef.current = entries.map(item => item.exercise);
+
+    const day = await getDay(userId, dateKey);
+    setDayStatus(day ? day.status || null : null);
+    setLoaded(true);
+  }, [userId, dateKey]);
+
   useEffect(() => {
     setSelectedExercise(null);
     setRepsInput('');
@@ -63,24 +81,20 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setIsDirty(false);
     setIsEditingExercises(false);
 
-    async function loadData() {
-      const entries = await getDayEntries(userId, dateKey);
-      const repsMap = {};
-      entries.forEach(item => {
-        repsMap[item.exercise] = item.reps;
-      });
-      setExerciseReps(repsMap);
-      originalNamesRef.current = entries.map(item => item.exercise);
-
-      const day = await getDay(userId, dateKey);
-      setDayStatus(day ? day.status || null : null);
-      setLoaded(true);
-    }
-
     if (userId) {
       loadData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateKey, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (userId && loaded && !isDirtyRef.current) {
+        loadData();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, loaded, dateKey]),
+  );
 
   const handleSelectExercise = exercise => {
     if (selectedExercise === exercise) {
@@ -151,16 +165,12 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
           ? clearDay(userId, dateKey, originalNamesRef.current)
           : setStatusForDate(userId, dateKey, newStatus, originalNamesRef.current);
 
-      // Не ждём подтверждение сервера бесконечно — офлайн запись
-      // уже применена локально (детали в services/offlineSync.js).
       const result = await saveWithOfflineFallback(writePromise);
       if (result.error) {
         throw result.error;
       }
       originalNamesRef.current = [];
 
-      // Рейтинг нужен только таблице лидеров (ей и так нужен интернет) —
-      // удаляем в фоне, не блокируя экран.
       deleteDayRating(userId, dateKey).catch(error =>
         console.error('Удаление рейтинга дня отложено до сети:', error),
       );
@@ -204,8 +214,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
     setSaving(true);
     try {
-      // Личная статистика должна сохраняться и офлайн —
-      // saveWithOfflineFallback не даёт кнопке зависнуть без сети.
       const result = await saveWithOfflineFallback(
         saveExercisesForDate(
           userId,
@@ -219,8 +227,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       }
       originalNamesRef.current = exercisesList.map(item => item.exercise);
 
-      // Рейтинг для таблицы лидеров — в фоне, не задерживая сохранение
-      // личной тренировки.
       const rating = computeDayRating(exercisesList, exerciseCoefficients);
       const byExercise = computeDayRepsByExercise(exercisesList);
       saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
@@ -331,13 +337,24 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
             onPress={() => handleSelectExercise(exercise)}
             activeOpacity={0.8}>
             <View style={styles.exerciseHeaderRow}>
-              <Text
-                style={[
-                  styles.exerciseButtonText,
-                  isSelected ? styles.exerciseButtonTextSelected : null,
-                ]}>
-                {exercise}
-              </Text>
+              <View style={styles.exerciseIconAndName}>
+                {/* Иконка-чип слева — как в примере с блоками разных
+                    функций. Иконка одна и та же для всех упражнений,
+                    т.к. в данных упражнений нет своей иконки — если
+                    захотите разные иконки по упражнениям, нужно будет
+                    добавить поле "иконка" в справочник упражнений */}
+                <View style={styles.exerciseIconChip}>
+                  <Ionicons name="barbell-outline" size={18} color={colors.primary} />
+                </View>
+                <Text
+                  style={[
+                    styles.exerciseButtonText,
+                    isSelected ? styles.exerciseButtonTextSelected : null,
+                  ]}
+                  numberOfLines={1}>
+                  {exercise}
+                </Text>
+              </View>
 
               {totalReps > 0 ? (
                 <View style={styles.totalRow}>
@@ -358,6 +375,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
                 <TextInput
                   style={styles.inlineInput}
                   placeholder="Кол-во повторений"
+                  placeholderTextColor={colors.textPlaceholder}
                   keyboardType="numeric"
                   value={repsInput}
                   onChangeText={handleChangeRepsInput}
@@ -458,44 +476,63 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 }
 
 const styles = StyleSheet.create({
-  title: {fontSize: 22, fontWeight: 'bold', marginBottom: 16},
+  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
 
-  statusTitle: {fontSize: 15, color: colors.textMuted, marginBottom: 8},
+  statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
-  statusButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: 8,
-    marginBottom: 8,
-  },
+statusButton: {
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 20,
+  borderWidth: 1,
+  borderColor: colors.border,
+  backgroundColor: colors.chip,
+  marginRight: 8,
+  marginBottom: 8,
+},
   statusButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
-  statusButtonText: {color: colors.textPrimary, fontSize: 14},
+  statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},
   statusButtonTextActive: {color: colors.white},
 
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
 
   exerciseList: {flexDirection: 'column'},
+  // Карточка упражнения — тёмная поверхность, крупные скругления и
+  // лёгкая тень, чтобы выглядело как отдельный "блок функции", а не
+  // просто обведённая рамка
   exerciseButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    marginBottom: 10,
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  exerciseButtonSelected: {borderColor: colors.primary},
+  exerciseButtonSelected: {borderWidth: 1.5, borderColor: colors.primary},
   exerciseHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  exerciseButtonText: {color: colors.textPrimary, fontSize: 16},
+  exerciseIconAndName: {flexDirection: 'row', alignItems: 'center', flexShrink: 1},
+  // Цветной кружок-подложка под иконкой — как цветные иконки в примере
+  exerciseIconChip: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  exerciseButtonText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1},
   exerciseButtonTextSelected: {color: colors.primary},
   totalRow: {flexDirection: 'row', alignItems: 'center'},
-  totalText: {fontSize: 15, color: colors.textSecondary, marginRight: 10},
+  totalText: {...typography.number, fontSize: 15, color: colors.textSecondary, marginRight: 10},
   removeCross: {fontSize: 18, color: colors.danger, fontWeight: 'bold'},
 
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
@@ -508,8 +545,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     marginRight: 8,
-    color: colors.black,
-    backgroundColor: colors.white,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
   },
   confirmButton: {
     backgroundColor: colors.success,
@@ -529,12 +566,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveButtonDisabled: {backgroundColor: colors.disabled},
-  saveButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 16},
+  saveButtonText: {...typography.button, color: colors.white},
 
   cancelEditButton: {paddingVertical: 12, alignItems: 'center'},
-  cancelEditButtonText: {color: colors.textMuted, fontSize: 14},
+  cancelEditButtonText: {...typography.caption, color: colors.textMuted},
 
-  readOnlyExerciseText: {fontSize: 15, color: colors.textPrimary, marginBottom: 4},
+  readOnlyExerciseText: {...typography.body, fontSize: 15, color: colors.textPrimary, marginBottom: 4},
   editButton: {
     marginTop: 16,
     backgroundColor: colors.primary,
@@ -542,7 +579,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  editButtonText: {color: colors.white, fontWeight: 'bold'},
+  editButtonText: {...typography.button, color: colors.white},
 
   deleteSection: {marginTop: 40},
   deleteButton: {
@@ -552,5 +589,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.danger,
   },
-  deleteButtonText: {color: colors.danger, fontWeight: 'bold'},
+  deleteButtonText: {...typography.button, fontSize: 15, color: colors.danger},
 });

@@ -17,6 +17,7 @@ import {
   reorderExercise,
 } from '../services/exercises';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 export default function ExerciseManagementScreen({onClose}) {
   const {exercises, loadingExercises} = useExercises();
@@ -181,6 +182,7 @@ export default function ExerciseManagementScreen({onClose}) {
               value={editCoefficientInput}
               onChangeText={setEditCoefficientInput}
               placeholder="Коэф."
+              placeholderTextColor={colors.textPlaceholder}
               keyboardType="decimal-pad"
               maxLength={6}
               testID="exercise-management-edit-coefficient-input"
@@ -225,6 +227,7 @@ export default function ExerciseManagementScreen({onClose}) {
           <TextInput
             style={styles.input}
             placeholder="Название упражнения"
+            placeholderTextColor={colors.textPlaceholder}
             value={newNameInput}
             onChangeText={setNewNameInput}
             maxLength={50}
@@ -236,6 +239,7 @@ export default function ExerciseManagementScreen({onClose}) {
             value={newCoefficientInput}
             onChangeText={setNewCoefficientInput}
             placeholder="Коэф."
+            placeholderTextColor={colors.textPlaceholder}
             keyboardType="decimal-pad"
             maxLength={6}
             testID="exercise-management-new-coefficient-input"
@@ -257,6 +261,7 @@ export default function ExerciseManagementScreen({onClose}) {
           data={exercises}
           keyExtractor={item => item.id}
           renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
           testID="exercise-management-list"
         />
       )}
@@ -265,7 +270,7 @@ export default function ExerciseManagementScreen({onClose}) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {flex: 1, backgroundColor: colors.white},
+  safeArea: {flex: 1, backgroundColor: colors.background},
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -276,7 +281,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   closeIcon: {fontSize: 22, color: colors.textPrimary},
-  title: {fontSize: 18, fontWeight: 'bold'},
+  title: {...typography.sectionTitle, color: colors.textPrimary},
   addIcon: {fontSize: 26, color: colors.primary, fontWeight: 'bold'},
 
   addRow: {
@@ -299,10 +304,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   orderArrow: {fontSize: 14, color: colors.primary, paddingVertical: 2},
-  orderArrowDisabled: {color: colors.border},
+  orderArrowDisabled: {color: colors.disabled},
   item: {flex: 1, paddingVertical: 14},
-  itemText: {fontSize: 16, color: colors.textPrimary},
-  coefficientText: {fontSize: 12, color: colors.textPlaceholder, marginTop: 2},
+  itemText: {...typography.bodyBold, color: colors.textPrimary},
+  coefficientText: {...typography.caption, fontSize: 12, color: colors.textPlaceholder, marginTop: 2},
 
   editRow: {
     flexDirection: 'row',
@@ -318,8 +323,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     marginRight: 8,
-    color: colors.black,
-    backgroundColor: colors.white,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   coefficientInput: {
     width: 70,
@@ -330,8 +335,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     marginRight: 8,
-    color: colors.black,
-    backgroundColor: colors.white,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   confirmButton: {
     backgroundColor: colors.success,
@@ -354,5 +359,5 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {color: colors.danger, fontWeight: 'bold', fontSize: 18},
 
-  emptyText: {textAlign: 'center', color: colors.textPlaceholder, marginTop: 20},
+  emptyText: {...typography.caption, textAlign: 'center', color: colors.textPlaceholder, marginTop: 20},
 });

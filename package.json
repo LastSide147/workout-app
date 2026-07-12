@@ -20,6 +20,7 @@
     "@react-navigation/bottom-tabs": "^7.18.7",
     "@react-navigation/native": "^7.3.7",
     "expo": "~56.0.0",
+    "expo-asset": "~56.0.19",
     "expo-updates": "~56.0.21",
     "react": "19.2.3",
     "react-native": "^0.85.3",

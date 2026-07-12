@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
+import {Ionicons} from '@expo/vector-icons';
 import {
   registerWithEmail,
   loginWithEmail,
@@ -16,10 +17,8 @@ import {
   getAuthErrorMessage,
 } from '../services/auth';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
-// Простая проверка формата email на стороне приложения — до отправки
-// запроса в Firebase. Ловит очевидные ошибки (нет @, нет точки в домене)
-// и сразу показывает понятное сообщение, а не ждёт ответа сервера.
 function isValidEmail(value) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return regex.test(value);
@@ -33,8 +32,6 @@ export default function AuthScreen({pendingVerification, onVerified}) {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    // Убираем случайные пробелы в начале/конце — частая причина
-    // "битого" email при вводе с телефона
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail || !password) {
@@ -129,6 +126,7 @@ export default function AuthScreen({pendingVerification, onVerified}) {
       <TextInput
         style={styles.input}
         placeholder="Email"
+        placeholderTextColor={colors.textPlaceholder}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -137,11 +135,11 @@ export default function AuthScreen({pendingVerification, onVerified}) {
         onChangeText={setEmail}
       />
 
-      {/* Поле пароля с иконкой показать/скрыть справа */}
       <View style={styles.passwordRow}>
         <TextInput
           style={styles.passwordInput}
           placeholder="Пароль"
+          placeholderTextColor={colors.textPlaceholder}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry={!passwordVisible}
@@ -152,7 +150,11 @@ export default function AuthScreen({pendingVerification, onVerified}) {
           style={styles.eyeButton}
           onPress={() => setPasswordVisible(prev => !prev)}
           hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-          <Text style={styles.eyeIcon}>{passwordVisible ? '🙈' : '👁'}</Text>
+          <Ionicons
+            name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+            size={20}
+            color={colors.textMuted}
+          />
         </TouchableOpacity>
       </View>
 
@@ -183,9 +185,9 @@ export default function AuthScreen({pendingVerification, onVerified}) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 24, justifyContent: 'center', backgroundColor: colors.white},
-  title: {fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center'},
-  description: {fontSize: 15, color: colors.textSecondary, textAlign: 'center', marginBottom: 24},
+  container: {flex: 1, padding: 24, justifyContent: 'center', backgroundColor: colors.background},
+  title: {...typography.screenTitle, fontSize: 24, marginBottom: 20, textAlign: 'center', color: colors.textPrimary},
+  description: {...typography.body, fontSize: 15, color: colors.textSecondary, textAlign: 'center', marginBottom: 24},
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -193,6 +195,8 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     marginBottom: 12,
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
   },
   passwordRow: {
     flexDirection: 'row',
@@ -201,14 +205,15 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     marginBottom: 12,
+    backgroundColor: colors.surface,
   },
   passwordInput: {
     flex: 1,
     padding: 12,
     fontSize: 16,
+    color: colors.textPrimary,
   },
   eyeButton: {paddingHorizontal: 12},
-  eyeIcon: {fontSize: 18},
   primaryButton: {
     backgroundColor: colors.primary,
     padding: 14,
@@ -216,7 +221,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  primaryButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 16},
+  primaryButtonText: {...typography.button, color: colors.white},
   linkButton: {marginTop: 16, alignItems: 'center'},
-  linkText: {color: colors.primary, fontSize: 14},
+  linkText: {...typography.buttonSmall, fontSize: 14, color: colors.primary},
 });

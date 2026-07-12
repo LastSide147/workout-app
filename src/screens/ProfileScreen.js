@@ -14,6 +14,7 @@ import useUserRole from '../hooks/useUserRole';
 import ExerciseManagementScreen from './ExerciseManagementScreen';
 import {useUpdatesContext} from '../context/UpdatesContext';
 import colors from '../theme/colors';
+import typography from '../theme/typography';
 
 export default function ProfileScreen() {
   const user = getCurrentUser();
@@ -55,9 +56,6 @@ export default function ProfileScreen() {
           {user ? user.email : ''}
         </Text>
 
-        {/* Кнопка видна только пользователю с role: "master" в Firestore.
-            Проверка на сервере (в Firestore Rules) — обязательна отдельно,
-            эта кнопка — только удобство интерфейса, а не защита сама по себе */}
         {isMaster ? (
           <TouchableOpacity
             style={styles.manageButton}
@@ -100,7 +98,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {flex: 1, backgroundColor: colors.white},
+  safeArea: {flex: 1, backgroundColor: colors.background},
   container: {
     flex: 1,
     padding: 16,
@@ -125,7 +123,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontWeight: 'bold',
   },
-  email: {fontSize: 16, color: colors.textSecondary, marginBottom: 30},
+  email: {...typography.body, color: colors.textSecondary, marginBottom: 30},
 
   manageButton: {
     borderWidth: 1,
@@ -134,16 +132,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
-  manageButtonText: {color: colors.primary, fontWeight: 'bold'},
+  manageButtonText: {...typography.button, fontSize: 15, color: colors.primary},
 
   updatesSection: {marginTop: 30},
-  updatesTitle: {fontSize: 15, color: colors.textMuted, marginBottom: 8},
-  updatesStatusText: {fontSize: 14, color: colors.textPlaceholder},
+  updatesTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
+  updatesStatusText: {...typography.caption, fontSize: 14, color: colors.textPlaceholder},
   updateButton: {
     backgroundColor: colors.success,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  updateButtonText: {color: colors.white, fontWeight: 'bold'},
+  updateButtonText: {...typography.button, fontSize: 15, color: colors.white},
 });

@@ -13,5 +13,8 @@
     "checkAutomatically": "NEVER"
   },
   "android": {},
-  "ios": {}
+  "ios": {},
+  "plugins": [
+    "expo-asset"
+  ]
 }
