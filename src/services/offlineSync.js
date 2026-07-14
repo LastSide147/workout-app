@@ -20,8 +20,8 @@
 // неверные данные и т.п.) почти всегда приходят от сервера быстро,
 // поэтому таймаут их не маскирует.
 
-const DEFAULT_WRITE_TIMEOUT_MS = 4000;
-const DEFAULT_READ_TIMEOUT_MS = 6000;
+const DEFAULT_WRITE_TIMEOUT_MS = 3000;
+const DEFAULT_READ_TIMEOUT_MS = 5000;
 
 /**
  * Оборачивает Promise записи в Firestore (например batch.commit()

@@ -32,40 +32,45 @@ export async function getDayEntries(userId, dateKey) {
   }));
 }
 
-// ВАЖНО: previousExerciseNames передаётся с экрана (то, что уже было
-// загружено при открытии дня), а не читается заново через .get().
-// Раньше здесь был запрос entriesCollection(...).get() перед каждой
-// записью — именно на нём кнопка "Сохранить" зависала офлайн: SDK
-// ждал ответа сервера, чтобы узнать, какие упражнения уже есть в
-// базе, и только потом формировал batch на удаление/запись. Теперь
-// это сравнение делается на клиенте, батч собирается мгновенно и
-// уходит в локальный кэш Firestore без единого сетевого чтения.
-export async function saveExercisesForDate(
-  userId,
-  dateKey,
-  exercisesList,
-  previousExerciseNames = [],
-) {
-  const newNames = exercisesList.map(item => item.exercise);
+// Сохраняет ОДНО упражнение сразу, как только пользователь подтвердил
+// его галочкой — отдельной кнопки "Сохранить тренировку" больше нет.
+// День помечается как "есть тренировка", статус (выходной/пропуск/
+// травма) сбрасывается, раз в этот день появилось упражнение.
+export async function setExerciseEntry(userId, dateKey, exerciseName, reps) {
   const batch = firestore().batch();
 
-  previousExerciseNames.forEach(name => {
-    if (!newNames.includes(name)) {
-      batch.delete(entriesCollection(userId, dateKey).doc(name));
-    }
-  });
-
-  exercisesList.forEach(item => {
-    batch.set(entriesCollection(userId, dateKey).doc(item.exercise), {
-      reps: item.reps,
-      updatedAt: firestore.FieldValue.serverTimestamp(),
-    });
+  batch.set(entriesCollection(userId, dateKey).doc(exerciseName), {
+    reps,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
   });
 
   batch.set(workoutsCollection(userId).doc(dateKey), {
     date: dateKey,
     status: null,
-    hasExercises: exercisesList.length > 0,
+    hasExercises: true,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  });
+
+  return batch.commit();
+}
+
+// Удаляет ОДНО упражнение сразу (крестик у уже добавленного
+// упражнения). hasRemainingExercises передаётся с экрана — true, если
+// после удаления в этот день остаются другие упражнения.
+export async function deleteExerciseEntry(
+  userId,
+  dateKey,
+  exerciseName,
+  hasRemainingExercises,
+) {
+  const batch = firestore().batch();
+
+  batch.delete(entriesCollection(userId, dateKey).doc(exerciseName));
+
+  batch.set(workoutsCollection(userId).doc(dateKey), {
+    date: dateKey,
+    status: null,
+    hasExercises: hasRemainingExercises,
     updatedAt: firestore.FieldValue.serverTimestamp(),
   });
 

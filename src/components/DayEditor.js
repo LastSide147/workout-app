@@ -14,7 +14,8 @@ import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
   getDay,
   getDayEntries,
-  saveExercisesForDate,
+  setExerciseEntry,
+  deleteExerciseEntry,
   setStatusForDate,
   clearDay,
 } from '../services/workoutDays';
@@ -40,13 +41,21 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const [repsInput, setRepsInput] = useState('');
   const [exerciseReps, setExerciseReps] = useState({});
   const [dayStatus, setDayStatus] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isEditingExercises, setIsEditingExercises] = useState(false);
 
+  // Список упражнений, реально сохранённых в базе на момент последней
+  // загрузки дня. Нужен для кнопок статуса дня и полного удаления
+  // записи — им нужно знать, что удалять, без повторного чтения с
+  // сервера. При добавлении/удалении одного упражнения этот список
+  // обновляется сразу же, как только запись подтверждена сервером
+  // (или локальным офлайн-кэшем).
   const originalNamesRef = useRef([]);
 
+  // isDirty теперь означает "прямо сейчас идёт запись на сервер" —
+  // используется, чтобы useFocusEffect ниже не перезатирал данные,
+  // пока сохранение одного упражнения ещё не завершилось.
   const isDirtyRef = useRef(false);
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -60,16 +69,27 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   }, [userId]);
 
-  const loadData = useCallback(async () => {
+ const loadData = useCallback(async () => {
     const entries = await getDayEntries(userId, dateKey);
-    const repsMap = {};
-    entries.forEach(item => {
-      repsMap[item.exercise] = item.reps;
-    });
-    setExerciseReps(repsMap);
-    originalNamesRef.current = entries.map(item => item.exercise);
-
     const day = await getDay(userId, dateKey);
+
+    // Если день помечен как "есть тренировка", а список упражнений
+    // пришёл пустым — это, скорее всего, не реальное удаление, а
+    // особенность офлайн-кэша Firestore при первом обращении к этой
+    // коллекции за это открытие приложения. В этом случае не затираем
+    // то, что уже показано на экране, вместо того чтобы поверить
+    // подозрительно пустому ответу.
+    const looksIncomplete = entries.length === 0 && day && day.hasExercises;
+
+    if (!looksIncomplete) {
+      const repsMap = {};
+      entries.forEach(item => {
+        repsMap[item.exercise] = item.reps;
+      });
+      setExerciseReps(repsMap);
+      originalNamesRef.current = entries.map(item => item.exercise);
+    }
+
     setDayStatus(day ? day.status || null : null);
     setLoaded(true);
   }, [userId, dateKey]);
@@ -116,7 +136,10 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setRepsInput(numericValue > MAX_REPS ? String(MAX_REPS) : digitsOnly);
   };
 
-  const handleAddExercise = () => {
+  // Подтверждение галочкой — сохраняет ИМЕННО это упражнение сразу,
+  // без отдельной кнопки "Сохранить тренировку". Экран обновляется
+  // мгновенно (оптимистично), запись на сервер идёт в фоне.
+  const handleAddExercise = async () => {
     if (repsInput === '') {
       setSelectedExercise(null);
       return;
@@ -128,27 +151,92 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       return;
     }
 
+    const exercise = selectedExercise;
+    const newTotal = Math.min((exerciseReps[exercise] || 0) + reps, MAX_REPS);
+    const updatedReps = Object.assign({}, exerciseReps, {[exercise]: newTotal});
+
     setDayStatus(null);
-    setIsDirty(true);
-
-    setExerciseReps(prev => {
-      const newTotal = (prev[selectedExercise] || 0) + reps;
-      const updated = Object.assign({}, prev);
-      updated[selectedExercise] = Math.min(newTotal, MAX_REPS);
-      return updated;
-    });
-
+    setExerciseReps(updatedReps);
     setSelectedExercise(null);
     setRepsInput('');
+
+    setIsDirty(true);
+    try {
+      const result = await saveWithOfflineFallback(
+        setExerciseEntry(userId, dateKey, exercise, newTotal),
+      );
+      if (result.error) {
+        throw result.error;
+      }
+      if (!originalNamesRef.current.includes(exercise)) {
+        originalNamesRef.current = [...originalNamesRef.current, exercise];
+      }
+
+      const exercisesList = Object.keys(updatedReps).map(name => ({
+        exercise: name,
+        reps: updatedReps[name],
+      }));
+      const rating = computeDayRating(exercisesList, exerciseCoefficients);
+      const byExercise = computeDayRepsByExercise(exercisesList);
+      saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
+        console.error('Рейтинг дня синхронизируется позже:', error),
+      );
+
+      if (onSaved) {
+        onSaved();
+      }
+    } catch (error) {
+      Alert.alert('Ошибка сохранения', String(error));
+    } finally {
+      setIsDirty(false);
+    }
   };
 
-  const handleRemoveExercise = exercise => {
+  // Крестик у уже добавленного упражнения — сразу удаляет именно эту
+  // запись с сервера, без отдельного шага сохранения всей тренировки.
+  const handleRemoveExercise = async exercise => {
+    const updatedReps = Object.assign({}, exerciseReps);
+    delete updatedReps[exercise];
+    setExerciseReps(updatedReps);
+
+    const remainingNames = Object.keys(updatedReps);
+
     setIsDirty(true);
-    setExerciseReps(prev => {
-      const updated = Object.assign({}, prev);
-      delete updated[exercise];
-      return updated;
-    });
+    try {
+      const result = await saveWithOfflineFallback(
+        deleteExerciseEntry(userId, dateKey, exercise, remainingNames.length > 0),
+      );
+      if (result.error) {
+        throw result.error;
+      }
+      originalNamesRef.current = originalNamesRef.current.filter(
+        name => name !== exercise,
+      );
+
+      if (remainingNames.length === 0) {
+        deleteDayRating(userId, dateKey).catch(error =>
+          console.error('Удаление рейтинга дня отложено до сети:', error),
+        );
+      } else {
+        const exercisesList = remainingNames.map(name => ({
+          exercise: name,
+          reps: updatedReps[name],
+        }));
+        const rating = computeDayRating(exercisesList, exerciseCoefficients);
+        const byExercise = computeDayRepsByExercise(exercisesList);
+        saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
+          console.error('Рейтинг дня синхронизируется позже:', error),
+        );
+      }
+
+      if (onSaved) {
+        onSaved();
+      }
+    } catch (error) {
+      Alert.alert('Ошибка удаления', String(error));
+    } finally {
+      setIsDirty(false);
+    }
   };
 
   const hasReps = Object.keys(exerciseReps).length > 0;
@@ -199,56 +287,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
 
     applyStatus(status);
-  };
-
-  const handleSaveWorkout = async () => {
-    const exercisesList = Object.keys(exerciseReps).map(exercise => ({
-      exercise: exercise,
-      reps: exerciseReps[exercise],
-    }));
-
-    if (exercisesList.length === 0) {
-      Alert.alert('Добавьте хотя бы одно упражнение');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const result = await saveWithOfflineFallback(
-        saveExercisesForDate(
-          userId,
-          dateKey,
-          exercisesList,
-          originalNamesRef.current,
-        ),
-      );
-      if (result.error) {
-        throw result.error;
-      }
-      originalNamesRef.current = exercisesList.map(item => item.exercise);
-
-      const rating = computeDayRating(exercisesList, exerciseCoefficients);
-      const byExercise = computeDayRepsByExercise(exercisesList);
-      saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
-        console.error('Рейтинг дня синхронизируется позже:', error),
-      );
-
-      setIsDirty(false);
-      setIsEditingExercises(false);
-      Alert.alert(
-        'Готово',
-        result.pending
-          ? 'Тренировка сохранена на устройстве. Отправится на сервер автоматически, когда появится интернет.'
-          : 'Тренировка сохранена',
-      );
-      if (onSaved) {
-        onSaved();
-      }
-    } catch (error) {
-      Alert.alert('Ошибка сохранения', String(error));
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleDeleteDay = () => {
@@ -338,11 +376,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
             activeOpacity={0.8}>
             <View style={styles.exerciseHeaderRow}>
               <View style={styles.exerciseIconAndName}>
-                {/* Иконка-чип слева — как в примере с блоками разных
-                    функций. Иконка одна и та же для всех упражнений,
-                    т.к. в данных упражнений нет своей иконки — если
-                    захотите разные иконки по упражнениям, нужно будет
-                    добавить поле "иконка" в справочник упражнений */}
                 <View style={styles.exerciseIconChip}>
                   <Ionicons name="barbell-outline" size={18} color={colors.primary} />
                 </View>
@@ -374,7 +407,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
               <View style={styles.inlineEditRow}>
                 <TextInput
                   style={styles.inlineInput}
-                  placeholder="Кол-во повторений"
+                  placeholder="Полное количество повторений"
                   placeholderTextColor={colors.textPlaceholder}
                   keyboardType="numeric"
                   value={repsInput}
@@ -385,7 +418,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
                 <TouchableOpacity
                   style={styles.confirmButton}
                   onPress={handleAddExercise}>
-                  <Text style={styles.confirmButtonText}>✓</Text>
+                  <Ionicons name="checkmark" size={26} color={colors.white} />
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -393,17 +426,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         );
       })}
     </View>
-  );
-
-  const saveButtonBlock = (
-    <TouchableOpacity
-      style={[styles.saveButton, !isDirty ? styles.saveButtonDisabled : null]}
-      onPress={handleSaveWorkout}
-      disabled={saving || !isDirty}>
-      <Text style={styles.saveButtonText}>
-        {saving ? 'Сохранение...' : 'Сохранить тренировку'}
-      </Text>
-    </TouchableOpacity>
   );
 
   const deleteBlock = hasAnyData ? (
@@ -421,7 +443,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
         {exerciseSelectionBlock}
-        {saveButtonBlock}
 
         <View style={styles.divider} />
 
@@ -445,12 +466,11 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       {showExerciseEditor ? (
         <View>
           {exerciseSelectionBlock}
-          {saveButtonBlock}
           {hasReps ? (
             <TouchableOpacity
               style={styles.cancelEditButton}
               onPress={() => setIsEditingExercises(false)}>
-              <Text style={styles.cancelEditButtonText}>Отмена</Text>
+              <Text style={styles.cancelEditButtonText}>Готово</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -480,16 +500,16 @@ const styles = StyleSheet.create({
 
   statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
-statusButton: {
-  paddingVertical: 8,
-  paddingHorizontal: 12,
-  borderRadius: 20,
-  borderWidth: 1,
-  borderColor: colors.border,
-  backgroundColor: colors.chip,
-  marginRight: 8,
-  marginBottom: 8,
-},
+  statusButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.chip,
+    marginRight: 8,
+    marginBottom: 8,
+  },
   statusButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
   statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},
   statusButtonTextActive: {color: colors.white},
@@ -497,9 +517,6 @@ statusButton: {
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
 
   exerciseList: {flexDirection: 'column'},
-  // Карточка упражнения — тёмная поверхность, крупные скругления и
-  // лёгкая тень, чтобы выглядело как отдельный "блок функции", а не
-  // просто обведённая рамка
   exerciseButton: {
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -519,7 +536,6 @@ statusButton: {
     alignItems: 'center',
   },
   exerciseIconAndName: {flexDirection: 'row', alignItems: 'center', flexShrink: 1},
-  // Цветной кружок-подложка под иконкой — как цветные иконки в примере
   exerciseIconChip: {
     width: 32,
     height: 32,
@@ -556,17 +572,6 @@ statusButton: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  confirmButtonText: {color: colors.white, fontWeight: 'bold', fontSize: 18},
-
-  saveButton: {
-    backgroundColor: colors.primary,
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {backgroundColor: colors.disabled},
-  saveButtonText: {...typography.button, color: colors.white},
 
   cancelEditButton: {paddingVertical: 12, alignItems: 'center'},
   cancelEditButtonText: {...typography.caption, color: colors.textMuted},
