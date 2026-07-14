@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {ScrollView, View, StyleSheet} from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {ensureSignedIn} from '../services/firebase';
 import DayEditor from '../components/DayEditor';
 import {getDateKey} from '../utils/date';
@@ -15,16 +16,24 @@ export default function WorkoutLogScreen() {
   }, []);
 
   if (!userId) {
-    return <View style={styles.container} />;
+    return <View style={styles.safeArea} />;
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <DayEditor userId={userId} dateKey={todayKey} />
-    </ScrollView>
+    // SafeAreaView вместо фиксированного paddingTop — раньше отступ
+    // сверху был подобран "на глаз" и на части устройств дата всё
+    // равно оказывалась под системной областью (батарея, время,
+    // вырез камеры). SafeAreaView сам знает реальный размер этой
+    // области на конкретном телефоне.
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <DayEditor userId={userId} dateKey={todayKey} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
+  safeArea: {flex: 1, backgroundColor: colors.background},
+  container: {flex: 1, padding: 16, paddingTop: 8},
 });

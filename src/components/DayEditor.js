@@ -6,10 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Modal,
+  FlatList,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {Ionicons} from '@expo/vector-icons';
 import useExercises from '../hooks/useExercises';
+import useSelectedExercises from '../hooks/useSelectedExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
   getDay,
@@ -19,6 +22,10 @@ import {
   setStatusForDate,
   clearDay,
 } from '../services/workoutDays';
+import {
+  addSelectedExercise,
+  removeSelectedExercise,
+} from '../services/selectedExercises';
 import {
   computeDayRating,
   computeDayRepsByExercise,
@@ -30,12 +37,82 @@ import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
+import {BlurView} from 'expo-blur';
 
 const MAX_REPS = 5000;
 
+// Модалка выбора упражнения из общего каталога — открывается по
+// кнопке "+". Показывает только то, чего ещё нет на экране (ни в
+// личном списке, ни среди уже введённых сегодня повторений). Фон под
+// карточкой — размытие (BlurView), а не просто затемнение, чтобы
+// содержимое экрана позади было принципиально не разобрать.
+function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick}) {
+  const available = exercises.filter(item => !selectedNames.includes(item.name));
+
+  return (
+     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.pickerOverlay}>
+        {/* Само размытие — лежит под карточкой на весь экран */}
+<BlurView
+  intensity={100}
+  tint="dark"
+  blurMethod="dimezisBlurView"
+  style={StyleSheet.absoluteFill}
+/>
+
+        {/* Дополнительное затемнение поверх блюра — на Android нативный
+            блюр слабый сам по себе, вместе с этим слоем фон становится
+            по-настоящему нечитаемым */}
+        <View style={styles.pickerDarkOverlay} pointerEvents="none" />
+
+        {/* Прозрачный слой поверх размытия — тап по нему закрывает
+            модалку, как раньше тап по затемнению */}
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+
+        <TouchableOpacity activeOpacity={1} style={styles.pickerCard}>
+          <View style={styles.pickerHeader}>
+            <Text style={styles.pickerTitle}>Добавить упражнение</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Ionicons name="close" size={22} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={available}
+            keyExtractor={item => item.id}
+            style={styles.pickerList}
+            showsVerticalScrollIndicator={false}
+            renderItem={({item}) => (
+              <TouchableOpacity
+                style={styles.pickerRow}
+                onPress={() => onPick(item.name)}
+                testID={`day-editor-picker-option-${item.name}`}>
+                <Text style={styles.pickerRowText}>{item.name}</Text>
+                <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.pickerEmptyText}>
+                Все упражнения из общего списка уже добавлены
+              </Text>
+            }
+          />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
 export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
-  const {exerciseNames, exerciseCoefficients, loadingExercises} =
-    useExercises();
+  const {exercises, exerciseCoefficients, loadingExercises} = useExercises();
+  const {selectedExercises, selectedExerciseNames, loadingSelected} =
+    useSelectedExercises(userId);
 
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [repsInput, setRepsInput] = useState('');
@@ -44,6 +121,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const [loaded, setLoaded] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isEditingExercises, setIsEditingExercises] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   // Список упражнений, реально сохранённых в базе на момент последней
   // загрузки дня. Нужен для кнопок статуса дня и полного удаления
@@ -100,6 +178,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setLoaded(false);
     setIsDirty(false);
     setIsEditingExercises(false);
+    setPickerVisible(false);
 
     if (userId) {
       loadData();
@@ -193,7 +272,9 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   };
 
   // Крестик у уже добавленного упражнения — сразу удаляет именно эту
-  // запись с сервера, без отдельного шага сохранения всей тренировки.
+  // запись с сервера (только повторения за этот день), без отдельного
+  // шага сохранения всей тренировки. Из личного списка упражнение НЕ
+  // убирает — для этого есть отдельная кнопка-корзина.
   const handleRemoveExercise = async exercise => {
     const updatedReps = Object.assign({}, exerciseReps);
     delete updatedReps[exercise];
@@ -236,6 +317,33 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       Alert.alert('Ошибка удаления', String(error));
     } finally {
       setIsDirty(false);
+    }
+  };
+
+  // Добавление упражнения в ЛИЧНЫЙ список через "+". Отдельная
+  // подписка (useSelectedExercises) сама обновит экран, как только
+  // запись применится локально — оптимистично обновлять состояние
+  // вручную здесь не нужно.
+  const handlePickExercise = async exerciseName => {
+    setPickerVisible(false);
+    const result = await saveWithOfflineFallback(
+      addSelectedExercise(userId, exerciseName, selectedExercises),
+    );
+    if (result.error) {
+      Alert.alert('Ошибка добавления', String(result.error));
+    }
+  };
+
+  // Корзина у карточки — убирает упражнение из личного списка сразу,
+  // без окна подтверждения (перестаёт предлагаться для новых
+  // тренировок), но НЕ трогает уже сохранённые записи за прошлые
+  // дни — они остаются в истории.
+  const handleRemoveFromPersonalList = async exercise => {
+    const result = await saveWithOfflineFallback(
+      removeSelectedExercise(userId, exercise),
+    );
+    if (result.error) {
+      Alert.alert('Ошибка удаления', String(result.error));
     }
   };
 
@@ -324,11 +432,23 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     ]);
   };
 
-  if (!loaded || loadingExercises) {
+  if (!loaded || loadingExercises || loadingSelected) {
     return null;
   }
 
   const hasAnyData = hasReps || dayStatus !== null;
+
+  // То, что реально показываем в списке — это личный список
+  // пользователя ПЛЮС любые упражнения, у которых уже есть повторения
+  // за этот день, даже если их убрали из личного списка (чтобы
+  // убранное упражнение не "пряталось" вместе со своими данными —
+  // старые записи всегда должны оставаться видимыми).
+  const loggedExerciseNames = Object.keys(exerciseReps);
+  const displayedExerciseNames = [
+    ...selectedExerciseNames,
+    ...loggedExerciseNames.filter(name => !selectedExerciseNames.includes(name)),
+  ];
+  const hasDisplayedExercises = displayedExerciseNames.length > 0;
 
   const statusBlock = (
     <View>
@@ -359,11 +479,49 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   );
 
+  // Кнопка "+" — пока в личном списке есть хотя бы одно упражнение,
+  // висит компактной иконкой в правом верхнем углу списка и никуда не
+  // пропадает, сколько бы упражнений ни было добавлено.
+  const addExerciseHeaderRow = hasDisplayedExercises ? (
+    <View style={styles.addExerciseHeaderRow}>
+      <TouchableOpacity
+        style={styles.addExerciseIconButton}
+        onPress={() => setPickerVisible(true)}
+        hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+        testID="day-editor-add-exercise-button">
+        <Ionicons name="add" size={22} color={colors.white} />
+      </TouchableOpacity>
+    </View>
+  ) : null;
+
+  // Пока список пуст — вместо иконки в углу показываем крупную кнопку
+  // по центру. После первого добавления она "переезжает" в компактную
+  // иконку сверху справа (addExerciseHeaderRow выше).
+  const emptyExercisesBlock = !hasDisplayedExercises ? (
+    <View style={styles.emptyExercisesBlock}>
+      <Ionicons name="barbell-outline" size={36} color={colors.textMuted} />
+      <Text style={styles.emptyExercisesText}>
+        Список упражнений пуст — добавьте те, которые хотите отслеживать
+      </Text>
+      <TouchableOpacity
+        style={styles.emptyAddButton}
+        onPress={() => setPickerVisible(true)}
+        testID="day-editor-add-exercise-empty-button">
+        <Ionicons name="add" size={20} color={colors.white} />
+        <Text style={styles.emptyAddButtonText}>Добавить упражнение</Text>
+      </TouchableOpacity>
+    </View>
+  ) : null;
+
   const exerciseSelectionBlock = (
     <View style={styles.exerciseList}>
-      {exerciseNames.map(exercise => {
+      {addExerciseHeaderRow}
+      {emptyExercisesBlock}
+
+      {displayedExerciseNames.map(exercise => {
         const isSelected = selectedExercise === exercise;
         const totalReps = exerciseReps[exercise];
+        const isInPersonalList = selectedExerciseNames.includes(exercise);
 
         return (
           <TouchableOpacity
@@ -375,32 +533,41 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
             onPress={() => handleSelectExercise(exercise)}
             activeOpacity={0.8}>
             <View style={styles.exerciseHeaderRow}>
-              <View style={styles.exerciseIconAndName}>
-                <View style={styles.exerciseIconChip}>
-                  <Ionicons name="barbell-outline" size={18} color={colors.primary} />
-                </View>
-                <Text
-                  style={[
-                    styles.exerciseButtonText,
-                    isSelected ? styles.exerciseButtonTextSelected : null,
-                  ]}
-                  numberOfLines={1}>
-                  {exercise}
-                </Text>
-              </View>
+           <View style={styles.exerciseIconAndName}>
+  <Text
+    style={[
+      styles.exerciseButtonText,
+      isSelected ? styles.exerciseButtonTextSelected : null,
+    ]}
+    numberOfLines={1}>
+    {exercise}
+  </Text>
+</View>
 
-              {totalReps > 0 ? (
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalText}>{totalReps}</Text>
-                  {isSelected ? (
-                    <TouchableOpacity
-                      onPress={() => handleRemoveExercise(exercise)}
-                      hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                      <Text style={styles.removeCross}>✕</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              ) : null}
+              <View style={styles.exerciseHeaderRight}>
+                {totalReps > 0 ? (
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalText}>{totalReps}</Text>
+                    {isSelected ? (
+                      <TouchableOpacity
+                        onPress={() => handleRemoveExercise(exercise)}
+                        hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                        <Text style={styles.removeCross}>✕</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {isInPersonalList ? (
+                  <TouchableOpacity
+                    style={styles.removeFromListButton}
+                    onPress={() => handleRemoveFromPersonalList(exercise)}
+                    hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                    testID={`day-editor-remove-from-list-${exercise}`}>
+                    <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
 
             {isSelected ? (
@@ -437,8 +604,10 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   ) : null;
 
-  if (variant === 'log') {
-    return (
+  const showExerciseEditor = isEditingExercises || !hasReps;
+
+  const content =
+    variant === 'log' ? (
       <View>
         <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
@@ -450,47 +619,56 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
         {deleteBlock}
       </View>
-    );
-  }
+    ) : (
+      <View>
+        <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
-  const showExerciseEditor = isEditingExercises || !hasReps;
+        {statusBlock}
+
+        <View style={styles.divider} />
+
+        {showExerciseEditor ? (
+          <View>
+            {exerciseSelectionBlock}
+            {hasReps ? (
+              <TouchableOpacity
+                style={styles.cancelEditButton}
+                onPress={() => setIsEditingExercises(false)}>
+                <Text style={styles.cancelEditButtonText}>Готово</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : (
+          <View>
+            {Object.keys(exerciseReps).map(exercise => (
+              <Text key={exercise} style={styles.readOnlyExerciseText}>
+                {exercise} — {exerciseReps[exercise]}
+              </Text>
+            ))}
+
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => setIsEditingExercises(true)}>
+              <Text style={styles.editButtonText}>Редактировать</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {deleteBlock}
+      </View>
+    );
 
   return (
     <View>
-      <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
+      {content}
 
-      {statusBlock}
-
-      <View style={styles.divider} />
-
-      {showExerciseEditor ? (
-        <View>
-          {exerciseSelectionBlock}
-          {hasReps ? (
-            <TouchableOpacity
-              style={styles.cancelEditButton}
-              onPress={() => setIsEditingExercises(false)}>
-              <Text style={styles.cancelEditButtonText}>Готово</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : (
-        <View>
-          {Object.keys(exerciseReps).map(exercise => (
-            <Text key={exercise} style={styles.readOnlyExerciseText}>
-              {exercise} — {exerciseReps[exercise]}
-            </Text>
-          ))}
-
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => setIsEditingExercises(true)}>
-            <Text style={styles.editButtonText}>Редактировать</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {deleteBlock}
+      <ExercisePickerModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        exercises={exercises}
+        selectedNames={displayedExerciseNames}
+        onPick={handlePickExercise}
+      />
     </View>
   );
 }
@@ -517,6 +695,44 @@ const styles = StyleSheet.create({
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
 
   exerciseList: {flexDirection: 'column'},
+
+  addExerciseHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 10,
+  },
+  addExerciseIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
+  emptyExercisesBlock: {alignItems: 'center', paddingVertical: 32, paddingHorizontal: 16},
+  emptyExercisesText: {
+    ...typography.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  emptyAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  emptyAddButtonText: {...typography.button, color: colors.white, marginLeft: 8},
+
   exerciseButton: {
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -547,9 +763,11 @@ const styles = StyleSheet.create({
   },
   exerciseButtonText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1},
   exerciseButtonTextSelected: {color: colors.primary},
+  exerciseHeaderRight: {flexDirection: 'row', alignItems: 'center'},
   totalRow: {flexDirection: 'row', alignItems: 'center'},
   totalText: {...typography.number, fontSize: 15, color: colors.textSecondary, marginRight: 10},
   removeCross: {fontSize: 18, color: colors.danger, fontWeight: 'bold'},
+  removeFromListButton: {marginLeft: 12},
 
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
   inlineInput: {
@@ -595,4 +813,50 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
   },
   deleteButtonText: {...typography.button, fontSize: 15, color: colors.danger},
+
+  pickerOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+   pickerDarkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+
+  pickerCard: {
+    width: '85%',
+    maxHeight: '70%',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  pickerTitle: {...typography.sectionTitle, fontSize: 16, color: colors.textPrimary},
+  pickerList: {flexGrow: 0},
+  pickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dividerLight,
+  },
+  pickerRowText: {...typography.body, color: colors.textPrimary},
+  pickerEmptyText: {
+    ...typography.caption,
+    color: colors.textPlaceholder,
+    textAlign: 'center',
+    padding: 20,
+  },
 });
