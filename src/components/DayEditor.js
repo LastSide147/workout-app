@@ -37,42 +37,20 @@ import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay} from '../utils/date';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
-import {BlurView} from 'expo-blur';
 
 const MAX_REPS = 5000;
 
 // Модалка выбора упражнения из общего каталога — открывается по
 // кнопке "+". Показывает только то, чего ещё нет на экране (ни в
 // личном списке, ни среди уже введённых сегодня повторений). Фон под
-// карточкой — размытие (BlurView), а не просто затемнение, чтобы
-// содержимое экрана позади было принципиально не разобрать.
+// карточкой — просто плотное затемнение (без блюра — на Android
+// настоящее размытие внутри Modal нестабильно, см. пояснение в чате).
 function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick}) {
   const available = exercises.filter(item => !selectedNames.includes(item.name));
 
   return (
-     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.pickerOverlay}>
-        {/* Само размытие — лежит под карточкой на весь экран */}
-<BlurView
-  intensity={100}
-  tint="dark"
-  blurMethod="dimezisBlurView"
-  style={StyleSheet.absoluteFill}
-/>
-
-        {/* Дополнительное затемнение поверх блюра — на Android нативный
-            блюр слабый сам по себе, вместе с этим слоем фон становится
-            по-настоящему нечитаемым */}
-        <View style={styles.pickerDarkOverlay} pointerEvents="none" />
-
-        {/* Прозрачный слой поверх размытия — тап по нему закрывает
-            модалку, как раньше тап по затемнению */}
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={styles.pickerCard}>
           <View style={styles.pickerHeader}>
             <Text style={styles.pickerTitle}>Добавить упражнение</Text>
@@ -104,7 +82,7 @@ function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick
             }
           />
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 }
@@ -533,16 +511,16 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
             onPress={() => handleSelectExercise(exercise)}
             activeOpacity={0.8}>
             <View style={styles.exerciseHeaderRow}>
-           <View style={styles.exerciseIconAndName}>
-  <Text
-    style={[
-      styles.exerciseButtonText,
-      isSelected ? styles.exerciseButtonTextSelected : null,
-    ]}
-    numberOfLines={1}>
-    {exercise}
-  </Text>
-</View>
+              <View style={styles.exerciseIconAndName}>
+                <Text
+                  style={[
+                    styles.exerciseButtonText,
+                    isSelected ? styles.exerciseButtonTextSelected : null,
+                  ]}
+                  numberOfLines={1}>
+                  {exercise}
+                </Text>
+              </View>
 
               <View style={styles.exerciseHeaderRight}>
                 {totalReps > 0 ? (
@@ -752,15 +730,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   exerciseIconAndName: {flexDirection: 'row', alignItems: 'center', flexShrink: 1},
-  exerciseIconChip: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
   exerciseButtonText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1},
   exerciseButtonTextSelected: {color: colors.primary},
   exerciseHeaderRight: {flexDirection: 'row', alignItems: 'center'},
@@ -816,15 +785,10 @@ const styles = StyleSheet.create({
 
   pickerOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.94)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-   pickerDarkOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-
   pickerCard: {
     width: '85%',
     maxHeight: '70%',
