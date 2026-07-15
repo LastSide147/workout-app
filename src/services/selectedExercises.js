@@ -29,6 +29,10 @@ function selectedExercisesCollection(userId) {
 //    состояния компонента (в отличие от повторений, которые
 //    читаются разовым запросом и поэтому обновляются оптимистично
 //    вручную в DayEditor).
+//
+// Вторым аргументом в onData передаём метаданные снимка (fromCache) —
+// они нужны хуку useSelectedExercises, чтобы не путать "список
+// реально пуст" с "кэш ещё не успел прогрузиться при холодном старте".
 export function subscribeToSelectedExercises(userId, onData) {
   return selectedExercisesCollection(userId)
     .orderBy('order', 'asc')
@@ -38,11 +42,11 @@ export function subscribeToSelectedExercises(userId, onData) {
           name: doc.id,
           order: doc.data().order,
         }));
-        onData(list);
+        onData(list, {fromCache: snapshot.metadata.fromCache});
       },
       error => {
         console.error('Ошибка подписки на личный список упражнений:', error);
-        onData([]);
+        onData([], {fromCache: false});
       },
     );
 }

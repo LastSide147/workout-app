@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
-  SafeAreaView,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {ensureSignedIn} from '../services/firebase';
@@ -15,6 +14,7 @@ import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
 import {fetchLeaderboard} from '../services/ratings';
 import {getDateKey} from '../utils/date';
 import useExercises from '../hooks/useExercises';
+import ScreenContainer from '../components/ScreenContainer';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 
@@ -27,6 +27,15 @@ const PERIODS = [
 ];
 
 const ALL_EXERCISES_OPTION = 'Все упражнения';
+
+// Сколько строк рейтинга показывать сразу на странице Статистики, без
+// открытия модалки с полным списком. Полный список (с прокруткой)
+// доступен по тапу на заголовок раздела или по кнопке под списком.
+const LEADERBOARD_PREVIEW_LIMIT = 15;
+
+// Цвета для первых трёх мест рейтинга — золото/серебро/бронза. Индекс
+// в массиве = место в рейтинге минус 1 (0 → первое место и т.д.).
+const RANK_COLORS = [colors.gold, colors.silver, colors.bronze];
 
 function toDateKey(date) {
   const y = date.getFullYear();
@@ -87,7 +96,8 @@ function PeriodSelector({value, onChange, testIdPrefix}) {
 
 // Компактное окно по центру экрана (не на весь экран), размер
 // подстраивается под количество упражнений — используется и для
-// коэффициентов, и для фильтра, чтобы выглядело одинаково.
+// коэффициентов, и для фильтра, и для полного рейтинга, чтобы
+// выглядело одинаково.
 function CenteredDropdownModal({visible, onClose, title, children}) {
   return (
     <Modal
@@ -176,6 +186,48 @@ function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelec
   );
 }
 
+// Одна строка рейтинга — используется и на странице (первые 15), и в
+// модалке с полным списком, чтобы вид был одинаковым в обоих местах.
+// Первые три места подсвечиваются золотом/серебром/бронзой.
+function LeaderboardRow({item, index, isCurrentUser}) {
+  const rankColor = RANK_COLORS[index];
+
+  return (
+    <View style={[styles.row, isCurrentUser ? styles.rowHighlighted : null]}>
+      <Text style={[styles.exerciseText, rankColor ? {color: rankColor} : null]}>
+        {index + 1}. {item.nickname}
+      </Text>
+      <Text style={styles.repsText}>{item.rating}</Text>
+    </View>
+  );
+}
+
+// Модалка с полным рейтингом — открывается по тапу на заголовок
+// раздела или по кнопке "Показать весь рейтинг". В отличие от списка
+// на странице, тут своя прокрутка, потому что список здесь —
+// единственное содержимое модалки, а не часть общего скролла экрана.
+function LeaderboardModal({visible, onClose, leaderboard, currentUserId}) {
+  return (
+    <CenteredDropdownModal visible={visible} onClose={onClose} title="Рейтинг всех пользователей">
+      <FlatList
+        data={leaderboard}
+        keyExtractor={item => item.userId}
+        testID="statistics-full-leaderboard-list"
+        style={styles.dropdownList}
+        showsVerticalScrollIndicator={false}
+        renderItem={({item, index}) => (
+          <LeaderboardRow
+            item={item}
+            index={index}
+            isCurrentUser={item.userId === currentUserId}
+          />
+        )}
+        ListEmptyComponent={<Text style={styles.emptyText}>Нет данных за этот период</Text>}
+      />
+    </CenteredDropdownModal>
+  );
+}
+
 export default function StatisticsScreen() {
   const [userId, setUserId] = useState(null);
   const [days, setDays] = useState({});
@@ -195,6 +247,7 @@ export default function StatisticsScreen() {
 
   const [coefficientsVisible, setCoefficientsVisible] = useState(false);
   const [exerciseFilterVisible, setExerciseFilterVisible] = useState(false);
+  const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
 
   useEffect(() => {
     let unsubscribe;
@@ -272,8 +325,10 @@ export default function StatisticsScreen() {
     .filter(exercise => totals[exercise] > 0)
     .map(exercise => ({exercise, reps: totals[exercise]}));
 
+  const leaderboardPreview = leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT);
+
   return (
-    <View style={styles.container}>
+    <ScreenContainer>
       <Text style={styles.title}>Статистика</Text>
 
       {/* Блок 1: личная статистика пользователя за выбранный период */}
@@ -311,10 +366,15 @@ export default function StatisticsScreen() {
       </View>
 
       {/* Блок 2: общий рейтинг всех пользователей — отдельная карточка,
-          явно отделённая от личной статистики выше */}
+          явно отделённая от личной статистики выше. Заголовок кликабелен
+          и открывает модалку с полным списком (со своей прокруткой). */}
       <View style={styles.sectionCard}>
         <View style={styles.leaderboardHeaderRow}>
-          <Text style={styles.sectionTitleNoMargin}>Рейтинг всех пользователей</Text>
+          <TouchableOpacity
+            onPress={() => setLeaderboardModalVisible(true)}
+            testID="statistics-open-leaderboard-modal">
+            <Text style={styles.sectionTitleNoMargin}>Рейтинг всех пользователей</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setCoefficientsVisible(true)}
             hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
@@ -342,19 +402,28 @@ export default function StatisticsScreen() {
         ) : leaderboard.length === 0 ? (
           <Text style={styles.emptyText}>Нет данных за этот период</Text>
         ) : (
-          <FlatList
-            data={leaderboard}
-            keyExtractor={item => item.userId}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={false}
-            renderItem={({item, index}) => (
-              <View
-                style={[styles.row, item.userId === userId ? styles.rowHighlighted : null]}>
-                <Text style={styles.exerciseText}>{index + 1}. {item.nickname}</Text>
-                <Text style={styles.repsText}>{item.rating}</Text>
-              </View>
-            )}
-          />
+          <>
+            <FlatList
+              data={leaderboardPreview}
+              keyExtractor={item => item.userId}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={false}
+              renderItem={({item, index}) => (
+                <LeaderboardRow
+                  item={item}
+                  index={index}
+                  isCurrentUser={item.userId === userId}
+                />
+              )}
+            />
+
+            <TouchableOpacity
+              style={styles.showAllButton}
+              onPress={() => setLeaderboardModalVisible(true)}
+              testID="statistics-show-all-leaderboard-button">
+              <Text style={styles.showAllButtonText}>Показать весь рейтинг</Text>
+            </TouchableOpacity>
+          </>
         )}
       </View>
 
@@ -371,12 +440,18 @@ export default function StatisticsScreen() {
         selected={leaderboardExercise}
         onSelect={setLeaderboardExercise}
       />
-    </View>
+
+      <LeaderboardModal
+        visible={leaderboardModalVisible}
+        onClose={() => setLeaderboardModalVisible(false)}
+        leaderboard={leaderboard}
+        currentUserId={userId}
+      />
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
   title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
 
   sectionCard: {
@@ -461,6 +536,17 @@ const styles = StyleSheet.create({
   },
   exerciseFilterButtonText: {...typography.body, fontSize: 15, color: colors.textPrimary},
   exerciseFilterArrow: {fontSize: 14, color: colors.textMuted},
+
+  showAllButton: {
+    marginTop: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.chip,
+  },
+  showAllButtonText: {...typography.buttonSmall, color: colors.textPrimary},
 
   overlay: {
     flex: 1,

@@ -13,10 +13,14 @@ const TAB_ICONS = {
 
 const ICON_SIZE_INACTIVE = 22;
 const ICON_SIZE_ACTIVE = 30;
-// Отступ снизу под системную зону (жест/навигация) — берём реальный
-// insets.bottom, но не больше этого значения, чтобы на телефонах с
-// большим системным отступом панель не раздувалась пустым местом
-const MAX_BOTTOM_INSET = 12;
+// Минимальный отступ снизу — на случай если система вернула 0 (старая
+// кнопочная навигация, где системная зона не накладывается на
+// контент). Верхнего предела больше нет: у разных производителей
+// (Samsung, Google и т.д.) реальный размер жестовой зоны снизу
+// отличается на разных экранах — код должен брать то, что сообщает
+// конкретный телефон, а не число, подобранное под пару тестовых
+// устройств.
+const MIN_BOTTOM_INSET = 6;
 
 function TabButton({routeName, label, isFocused, onPress}) {
   const icons = TAB_ICONS[routeName] || TAB_ICONS.Log;
@@ -43,7 +47,7 @@ function TabButton({routeName, label, isFocused, onPress}) {
 
 export default function CustomTabBar({state, descriptors, navigation}) {
   const insets = useSafeAreaInsets();
-  const bottomPadding = Math.min(insets.bottom, MAX_BOTTOM_INSET) || 6;
+  const bottomPadding = Math.max(insets.bottom, MIN_BOTTOM_INSET);
 
   return (
     <View style={[styles.container, {paddingBottom: bottomPadding}]}>

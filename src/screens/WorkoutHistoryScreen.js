@@ -1,5 +1,5 @@
 import React, {useEffect, useState, useRef} from 'react';
-import {View, Text, StyleSheet, ScrollView} from 'react-native';
+import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
@@ -7,7 +7,10 @@ import {recalculateAllRatings} from '../services/ratings';
 import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
 import {getDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
+import ScreenContainer from '../components/ScreenContainer';
+import WeeklyBonusModal from '../components/WeeklyBonusModal';
 import useExercises from '../hooks/useExercises';
+import useWeeklyBonus from '../hooks/useWeeklyBonus';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 
@@ -37,6 +40,8 @@ export default function WorkoutHistoryScreen() {
 
   const {exerciseCoefficients, loadingExercises} = useExercises();
   const recalculatedRef = useRef(false);
+
+  const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
 
   useEffect(() => {
     let unsubscribe;
@@ -92,51 +97,59 @@ export default function WorkoutHistoryScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>История</Text>
+    <>
+      <ScreenContainer>
+        <Text style={styles.title}>История</Text>
 
-      {/* Календарь — в отдельной скруглённой карточке, как остальные
-          функциональные блоки в приложении, а не просто на голом фоне */}
-      <View style={styles.calendarCard}>
-        <Calendar
-          markedDates={marked}
-          onDayPress={handleDayPress}
-          firstDay={1}
-          theme={{
-            backgroundColor: colors.surface,
-            calendarBackground: colors.surface,
-            textSectionTitleColor: colors.textMuted,
-            dayTextColor: colors.textPrimary,
-            todayTextColor: colors.primary,
-            selectedDayBackgroundColor: colors.primary,
-            selectedDayTextColor: colors.white,
-            monthTextColor: colors.textPrimary,
-            arrowColor: colors.primary,
-            textDisabledColor: colors.textPlaceholder,
-            dotColor: colors.primary,
-            selectedDotColor: colors.white,
-          }}
-        />
-      </View>
-
-      <View style={styles.legend}>
-        <LegendItem color={STATUS_COLORS.workout} label="Тренировка" />
-        <LegendItem color={STATUS_COLORS[DAY_STATUS.WEEKEND]} label="Выходной" />
-        <LegendItem color={STATUS_COLORS[DAY_STATUS.SKIPPED]} label="Пропуск" />
-        <LegendItem color={STATUS_COLORS[DAY_STATUS.INJURY]} label="Травма" />
-      </View>
-
-      <View style={styles.details}>
-        {userId ? (
-          <DayEditor
-            key={selectedDate}
-            userId={userId}
-            dateKey={selectedDate}
-            variant="history"
+        {/* Календарь — в отдельной скруглённой карточке, как остальные
+            функциональные блоки в приложении, а не просто на голом фоне */}
+        <View style={styles.calendarCard}>
+          <Calendar
+            markedDates={marked}
+            onDayPress={handleDayPress}
+            firstDay={1}
+            theme={{
+              backgroundColor: colors.surface,
+              calendarBackground: colors.surface,
+              textSectionTitleColor: colors.textMuted,
+              dayTextColor: colors.textPrimary,
+              todayTextColor: colors.primary,
+              selectedDayBackgroundColor: colors.primary,
+              selectedDayTextColor: colors.white,
+              monthTextColor: colors.textPrimary,
+              arrowColor: colors.primary,
+              textDisabledColor: colors.textPlaceholder,
+              dotColor: colors.primary,
+              selectedDotColor: colors.white,
+            }}
           />
-        ) : null}
-      </View>
-    </ScrollView>
+        </View>
+
+        <View style={styles.legend}>
+          <LegendItem color={STATUS_COLORS.workout} label="Тренировка" />
+          <LegendItem color={STATUS_COLORS[DAY_STATUS.WEEKEND]} label="Выходной" />
+          <LegendItem color={STATUS_COLORS[DAY_STATUS.SKIPPED]} label="Пропуск" />
+          <LegendItem color={STATUS_COLORS[DAY_STATUS.INJURY]} label="Травма" />
+        </View>
+
+        <View style={styles.details}>
+          {userId ? (
+            <DayEditor
+              key={selectedDate}
+              userId={userId}
+              dateKey={selectedDate}
+              variant="history"
+            />
+          ) : null}
+        </View>
+      </ScreenContainer>
+
+      <WeeklyBonusModal
+        visible={bonusModalVisible}
+        points={bonusPoints}
+        onClose={closeBonusModal}
+      />
+    </>
   );
 }
 
@@ -150,7 +163,6 @@ function LegendItem({color, label}) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, padding: 16, paddingTop: 32, backgroundColor: colors.background},
   title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
   calendarCard: {
     backgroundColor: colors.surface,

@@ -34,7 +34,7 @@ import {
   upsertProfileNickname,
 } from '../services/ratings';
 import {saveWithOfflineFallback} from '../services/offlineSync';
-import {formatDateDisplay} from '../utils/date';
+import {formatDateDisplay, isWithinCurrentWeek} from '../utils/date';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 
@@ -101,17 +101,8 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const [isEditingExercises, setIsEditingExercises] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
 
-  // Список упражнений, реально сохранённых в базе на момент последней
-  // загрузки дня. Нужен для кнопок статуса дня и полного удаления
-  // записи — им нужно знать, что удалять, без повторного чтения с
-  // сервера. При добавлении/удалении одного упражнения этот список
-  // обновляется сразу же, как только запись подтверждена сервером
-  // (или локальным офлайн-кэшем).
   const originalNamesRef = useRef([]);
 
-  // isDirty теперь означает "прямо сейчас идёт запись на сервер" —
-  // используется, чтобы useFocusEffect ниже не перезатирал данные,
-  // пока сохранение одного упражнения ещё не завершилось.
   const isDirtyRef = useRef(false);
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -125,16 +116,10 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   }, [userId]);
 
- const loadData = useCallback(async () => {
+  const loadData = useCallback(async () => {
     const entries = await getDayEntries(userId, dateKey);
     const day = await getDay(userId, dateKey);
 
-    // Если день помечен как "есть тренировка", а список упражнений
-    // пришёл пустым — это, скорее всего, не реальное удаление, а
-    // особенность офлайн-кэша Firestore при первом обращении к этой
-    // коллекции за это открытие приложения. В этом случае не затираем
-    // то, что уже показано на экране, вместо того чтобы поверить
-    // подозрительно пустому ответу.
     const looksIncomplete = entries.length === 0 && day && day.hasExercises;
 
     if (!looksIncomplete) {
@@ -193,9 +178,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setRepsInput(numericValue > MAX_REPS ? String(MAX_REPS) : digitsOnly);
   };
 
-  // Подтверждение галочкой — сохраняет ИМЕННО это упражнение сразу,
-  // без отдельной кнопки "Сохранить тренировку". Экран обновляется
-  // мгновенно (оптимистично), запись на сервер идёт в фоне.
   const handleAddExercise = async () => {
     if (repsInput === '') {
       setSelectedExercise(null);
@@ -249,10 +231,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   };
 
-  // Крестик у уже добавленного упражнения — сразу удаляет именно эту
-  // запись с сервера (только повторения за этот день), без отдельного
-  // шага сохранения всей тренировки. Из личного списка упражнение НЕ
-  // убирает — для этого есть отдельная кнопка-корзина.
   const handleRemoveExercise = async exercise => {
     const updatedReps = Object.assign({}, exerciseReps);
     delete updatedReps[exercise];
@@ -298,10 +276,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   };
 
-  // Добавление упражнения в ЛИЧНЫЙ список через "+". Отдельная
-  // подписка (useSelectedExercises) сама обновит экран, как только
-  // запись применится локально — оптимистично обновлять состояние
-  // вручную здесь не нужно.
   const handlePickExercise = async exerciseName => {
     setPickerVisible(false);
     const result = await saveWithOfflineFallback(
@@ -312,10 +286,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   };
 
-  // Корзина у карточки — убирает упражнение из личного списка сразу,
-  // без окна подтверждения (перестаёт предлагаться для новых
-  // тренировок), но НЕ трогает уже сохранённые записи за прошлые
-  // дни — они остаются в истории.
   const handleRemoveFromPersonalList = async exercise => {
     const result = await saveWithOfflineFallback(
       removeSelectedExercise(userId, exercise),
@@ -416,11 +386,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
   const hasAnyData = hasReps || dayStatus !== null;
 
-  // То, что реально показываем в списке — это личный список
-  // пользователя ПЛЮС любые упражнения, у которых уже есть повторения
-  // за этот день, даже если их убрали из личного списка (чтобы
-  // убранное упражнение не "пряталось" вместе со своими данными —
-  // старые записи всегда должны оставаться видимыми).
   const loggedExerciseNames = Object.keys(exerciseReps);
   const displayedExerciseNames = [
     ...selectedExerciseNames,
@@ -428,7 +393,16 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   ];
   const hasDisplayedExercises = displayedExerciseNames.length > 0;
 
-  const statusBlock = (
+  // Редактировать (отмечать статус, добавлять/убирать/менять
+  // повторения, удалять запись целиком) можно только за ТЕКУЩУЮ
+  // неделю (понедельник–воскресенье). Экран "Тренировка" (variant
+  // "log") всегда открывает сегодняшний день, поэтому он редактируем
+  // всегда, без дополнительной проверки. Ограничение реально работает
+  // только на экране "История" (variant "history"), где через
+  // календарь можно открыть любой день, включая прошлые недели/месяцы.
+  const isEditable = variant === 'log' || isWithinCurrentWeek(dateKey);
+
+  const statusBlock = isEditable ? (
     <View>
       <Text style={styles.statusTitle}>Отметить день</Text>
       <View style={styles.statusRow}>
@@ -455,11 +429,22 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         })}
       </View>
     </View>
-  );
+  ) : dayStatus ? (
+    // День вне текущей недели, статус менять нельзя — но если он уже
+    // был проставлен раньше, показываем его как обычный (не
+    // нажимаемый) бейдж, а не прячем совсем.
+    <View>
+      <Text style={styles.statusTitle}>Статус дня</Text>
+      <View style={styles.statusRow}>
+        <View style={[styles.statusButton, styles.statusButtonActive]}>
+          <Text style={[styles.statusButtonText, styles.statusButtonTextActive]}>
+            {STATUS_LABELS[dayStatus]}
+          </Text>
+        </View>
+      </View>
+    </View>
+  ) : null;
 
-  // Кнопка "+" — пока в личном списке есть хотя бы одно упражнение,
-  // висит компактной иконкой в правом верхнем углу списка и никуда не
-  // пропадает, сколько бы упражнений ни было добавлено.
   const addExerciseHeaderRow = hasDisplayedExercises ? (
     <View style={styles.addExerciseHeaderRow}>
       <TouchableOpacity
@@ -472,9 +457,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   ) : null;
 
-  // Пока список пуст — вместо иконки в углу показываем крупную кнопку
-  // по центру. После первого добавления она "переезжает" в компактную
-  // иконку сверху справа (addExerciseHeaderRow выше).
   const emptyExercisesBlock = !hasDisplayedExercises ? (
     <View style={styles.emptyExercisesBlock}>
       <Ionicons name="barbell-outline" size={36} color={colors.textMuted} />
@@ -491,6 +473,10 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   ) : null;
 
+  // Этот блок (список упражнений с полем ввода повторений) отдаёт
+  // редактирование пользователю, поэтому дальше по файлу он вызывается
+  // только тогда, когда isEditable === true — см. showExerciseEditor
+  // ниже и ветку variant === 'log' (там isEditable всегда true).
   const exerciseSelectionBlock = (
     <View style={styles.exerciseList}>
       {addExerciseHeaderRow}
@@ -524,19 +510,13 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
               <View style={styles.exerciseHeaderRight}>
                 {totalReps > 0 ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalText}>{totalReps}</Text>
-                    {isSelected ? (
-                      <TouchableOpacity
-                        onPress={() => handleRemoveExercise(exercise)}
-                        hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                        <Text style={styles.removeCross}>✕</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
+                  <Text style={styles.totalText}>{totalReps}</Text>
                 ) : null}
 
-                {isInPersonalList ? (
+                {/* Убрать из личного списка можно только пока по
+                    упражнению за этот день ничего не введено — иначе
+                    можно случайно спрятать уже записанные данные */}
+                {isInPersonalList && !(totalReps > 0) ? (
                   <TouchableOpacity
                     style={styles.removeFromListButton}
                     onPress={() => handleRemoveFromPersonalList(exercise)}
@@ -549,22 +529,40 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
             </View>
 
             {isSelected ? (
-              <View style={styles.inlineEditRow}>
-                <TextInput
-                  style={styles.inlineInput}
-                  placeholder="Полное количество повторений"
-                  placeholderTextColor={colors.textPlaceholder}
-                  keyboardType="numeric"
-                  value={repsInput}
-                  onChangeText={handleChangeRepsInput}
-                  maxLength={4}
-                  autoFocus
-                />
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={handleAddExercise}>
-                  <Ionicons name="checkmark" size={26} color={colors.white} />
-                </TouchableOpacity>
+              <View>
+                <View style={styles.inlineEditRow}>
+                  <TextInput
+                    style={styles.inlineInput}
+                    placeholder="Полное количество повторений"
+                    placeholderTextColor={colors.textPlaceholder}
+                    keyboardType="numeric"
+                    value={repsInput}
+                    onChangeText={handleChangeRepsInput}
+                    maxLength={4}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={styles.confirmButton}
+                    onPress={handleAddExercise}>
+                    <Ionicons name="checkmark" size={26} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Отдельной строкой ПОД полем ввода, подальше от
+                    галочки подтверждения — чтобы не промахнуться при
+                    частом нажатии на галочку и случайно не удалить всё */}
+                {totalReps > 0 ? (
+                  <TouchableOpacity
+                    style={styles.clearRepsLink}
+                    onPress={() => handleRemoveExercise(exercise)}
+                    hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                    testID={`day-editor-clear-reps-${exercise}`}>
+                    <Ionicons name="trash-outline" size={14} color={colors.danger} />
+                    <Text style={styles.clearRepsLinkText}>
+                      Удалить ввод
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : null}
           </TouchableOpacity>
@@ -573,7 +571,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   );
 
-  const deleteBlock = hasAnyData ? (
+  const deleteBlock = hasAnyData && isEditable ? (
     <View style={styles.deleteSection}>
       <View style={styles.divider} />
       <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteDay}>
@@ -582,7 +580,20 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     </View>
   ) : null;
 
-  const showExerciseEditor = isEditingExercises || !hasReps;
+  // Если день нельзя редактировать, forced-показ редактора (пустой
+  // день без записей) тоже не нужен — вместо него ниже показывается
+  // либо список за прошлый день только для чтения, либо сообщение
+  // "Нет данных".
+  const showExerciseEditor = isEditable && (isEditingExercises || !hasReps);
+
+  const lockNotice = !isEditable ? (
+    <View style={styles.lockNotice} testID="day-editor-lock-notice">
+      <Ionicons name="lock-closed-outline" size={16} color={colors.textMuted} />
+      <Text style={styles.lockNoticeText}>
+        Редактирование доступно для текущей недели
+      </Text>
+    </View>
+  ) : null;
 
   const content =
     variant === 'log' ? (
@@ -601,6 +612,8 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       <View>
         <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
 
+        {lockNotice}
+
         {statusBlock}
 
         <View style={styles.divider} />
@@ -618,17 +631,23 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
           </View>
         ) : (
           <View>
-            {Object.keys(exerciseReps).map(exercise => (
-              <Text key={exercise} style={styles.readOnlyExerciseText}>
-                {exercise} — {exerciseReps[exercise]}
-              </Text>
-            ))}
+            {hasReps ? (
+              Object.keys(exerciseReps).map(exercise => (
+                <Text key={exercise} style={styles.readOnlyExerciseText}>
+                  {exercise} — {exerciseReps[exercise]}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.emptyExercisesText}>Нет данных за этот день</Text>
+            )}
 
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={() => setIsEditingExercises(true)}>
-              <Text style={styles.editButtonText}>Редактировать</Text>
-            </TouchableOpacity>
+            {isEditable ? (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => setIsEditingExercises(true)}>
+                <Text style={styles.editButtonText}>Редактировать</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
 
@@ -653,6 +672,22 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
 const styles = StyleSheet.create({
   title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
+
+  lockNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.chip,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  lockNoticeText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginLeft: 8,
+    flexShrink: 1,
+  },
 
   statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
@@ -733,9 +768,7 @@ const styles = StyleSheet.create({
   exerciseButtonText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1},
   exerciseButtonTextSelected: {color: colors.primary},
   exerciseHeaderRight: {flexDirection: 'row', alignItems: 'center'},
-  totalRow: {flexDirection: 'row', alignItems: 'center'},
   totalText: {...typography.number, fontSize: 15, color: colors.textSecondary, marginRight: 10},
-  removeCross: {fontSize: 18, color: colors.danger, fontWeight: 'bold'},
   removeFromListButton: {marginLeft: 12},
 
   inlineEditRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
@@ -758,6 +791,17 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  clearRepsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 12,
+  },
+  clearRepsLinkText: {
+    ...typography.caption,
+    color: colors.danger,
+    marginLeft: 6,
   },
 
   cancelEditButton: {paddingVertical: 12, alignItems: 'center'},
