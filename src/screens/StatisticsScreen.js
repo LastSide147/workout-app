@@ -188,7 +188,11 @@ function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelec
 
 // Одна строка рейтинга — используется и на странице (первые 15), и в
 // модалке с полным списком, чтобы вид был одинаковым в обоих местах.
-// Первые три места подсвечиваются золотом/серебром/бронзой.
+// Первые три места подсвечиваются золотом/серебром/бронзой. Между
+// строками больше нет линии-разделителя (borderBottom убран из
+// styles.row) — карточка текущего пользователя и так выделяется
+// рамкой, а остальным строкам разделитель только мешал, визуально
+// "резал" список.
 function LeaderboardRow({item, index, isCurrentUser}) {
   const rankColor = RANK_COLORS[index];
 
@@ -236,7 +240,15 @@ export default function StatisticsScreen() {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('day');
   const [leaderboardExercise, setLeaderboardExercise] = useState(ALL_EXERCISES_OPTION);
 
-  const {exercises, exerciseNames, loadingExercises} = useExercises();
+  // exercises — намеренно берём тот срез хука, что содержит только
+  // ОДИНОЧНЫЕ упражнения верхнего уровня (без папок). В Статистике
+  // (и в личной разбивке "Мои упражнения", и в фильтре рейтинга, и в
+  // справке по коэффициентам) упражнения из папок мастера сознательно
+  // не показываются — просили только одиночные. На "Всего" это не
+  // влияет: общая сумма считается по всем записанным повторениям
+  // напрямую, независимо от того, что показано построчно.
+  const {exercises, loadingExercises} = useExercises();
+  const exerciseNames = exercises.map(item => item.name);
 
   const [totals, setTotals] = useState({});
   const [overallTotal, setOverallTotal] = useState(0);
@@ -331,7 +343,12 @@ export default function StatisticsScreen() {
     <ScreenContainer>
       <Text style={styles.title}>Статистика</Text>
 
-      {/* Блок 1: личная статистика пользователя за выбранный период */}
+      {/* Блок 1: личная статистика пользователя за выбранный период.
+          Каждое упражнение — отдельная карточка-строка (фон chip,
+          скруглённые углы) с числом повторений в виде "пилюли"
+          справа — без линий-разделителей между строками, компактная
+          подпись "Повторения" сверху вместо длинного "Количество
+          повторений". */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Мои упражнения</Text>
         <PeriodSelector
@@ -345,18 +362,25 @@ export default function StatisticsScreen() {
         ) : list.length === 0 ? (
           <Text style={styles.emptyText}>Нет данных за этот период</Text>
         ) : (
-          <FlatList
-            data={list}
-            keyExtractor={item => item.exercise}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={false}
-            renderItem={({item}) => (
-              <View style={styles.row}>
-                <Text style={styles.exerciseText}>{item.exercise}</Text>
-                <Text style={styles.repsText}>{item.reps}</Text>
-              </View>
-            )}
-          />
+          <>
+            <View style={styles.columnHeaderRow}>
+              <Text style={styles.columnHeaderText}>Повторения</Text>
+            </View>
+            <FlatList
+              data={list}
+              keyExtractor={item => item.exercise}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={false}
+              renderItem={({item}) => (
+                <View style={styles.personalRow}>
+                  <Text style={styles.personalExerciseText} numberOfLines={1}>
+                    {item.exercise}
+                  </Text>
+                  <Text style={styles.repsPillText}>{item.reps}</Text>
+                </View>
+              )}
+            />
+          </>
         )}
 
         <View style={styles.totalRow}>
@@ -491,19 +515,50 @@ const styles = StyleSheet.create({
   infoIcon: {fontSize: 20, color: colors.info},
   loader: {marginTop: 12},
   emptyText: {...typography.caption, fontSize: 14, color: colors.textPlaceholder, marginTop: 4, marginBottom: 12},
+
+  // Подпись-заголовок над колонкой повторений в блоке "Мои упражнения"
+  // — короткое "Повторения" вместо длинного "Количество повторений"
+  columnHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+  columnHeaderText: {...typography.caption, fontSize: 13, color: colors.textMuted},
+
+  // Карточка-строка одного упражнения в "Мои упражнения" — свой,
+  // отдельный от рейтинга стиль (в отличие от styles.row, который
+  // теперь используется только рейтингом). Название слева, число
+  // повторений — простым цветным текстом справа, без фона/обводки
+  // вокруг него и без линий-разделителей между карточками. Фон —
+  // colors.recessed (темнее самого background), а не chip — раньше
+  // строка была светлее фона экрана, теперь наоборот, слегка утоплена.
+  personalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.recessed,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  personalExerciseText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1, marginRight: 12},
+  repsPillText: {...typography.number, fontSize: 16, color: colors.primary},
+
+  // Строка рейтинга (используется только LeaderboardRow). Линия-
+  // разделитель между строками убрана намеренно — резала список,
+  // текущий пользователь и так виден по рамке rowHighlighted.
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
   },
   rowHighlighted: {
     backgroundColor: colors.primaryLight,
     borderRadius: 12,
     paddingHorizontal: 10,
-    borderBottomWidth: 0,
     borderWidth: 1,
     borderColor: colors.primary,
     marginVertical: 2,

@@ -45,8 +45,37 @@ const MAX_REPS = 5000;
 // личном списке, ни среди уже введённых сегодня повторений). Фон под
 // карточкой — просто плотное затемнение (без блюра — на Android
 // настоящее размытие внутри Modal нестабильно, см. пояснение в чате).
-function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick}) {
+//
+// Папки показываются отдельным блоком НИЖЕ одиночных упражнений, точно
+// так же, как и в экране управления мастера. Тап по папке разворачивает
+// её содержимое прямо в этом же окне (не отдельный экран) — список
+// упражнений внутри выглядит и ведёт себя абсолютно так же, как список
+// одиночных упражнений выше.
+function ExercisePickerModal({
+  visible,
+  onClose,
+  exercises,
+  folders,
+  folderExercises,
+  selectedNames,
+  onPick,
+}) {
+  const [expandedFolderId, setExpandedFolderId] = useState(null);
+
+  // Каждый раз при новом открытии модалки — сворачиваем ранее
+  // раскрытую папку, чтобы не удивлять пользователя состоянием,
+  // оставшимся с прошлого раза.
+  useEffect(() => {
+    if (visible) {
+      setExpandedFolderId(null);
+    }
+  }, [visible]);
+
   const available = exercises.filter(item => !selectedNames.includes(item.name));
+
+  const toggleFolder = folderId => {
+    setExpandedFolderId(current => (current === folderId ? null : folderId));
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -76,9 +105,61 @@ function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.pickerEmptyText}>
-                Все упражнения из общего списка уже добавлены
-              </Text>
+              folders.length === 0 ? (
+                <Text style={styles.pickerEmptyText}>
+                  Все упражнения из общего списка уже добавлены
+                </Text>
+              ) : null
+            }
+            ListFooterComponent={
+              folders.length > 0 ? (
+                <View style={styles.pickerFoldersSection}>
+                  {folders.map(folder => {
+                    const isExpanded = expandedFolderId === folder.id;
+                    const folderItems = (folderExercises[folder.id] || []).filter(
+                      item => !selectedNames.includes(item.name),
+                    );
+
+                    return (
+                      <View key={folder.id}>
+                        <TouchableOpacity
+                          style={styles.pickerFolderRow}
+                          onPress={() => toggleFolder(folder.id)}
+                          testID={`day-editor-picker-folder-${folder.name}`}>
+                          <View style={styles.pickerFolderNameRow}>
+                            <Ionicons name="folder-outline" size={20} color={colors.textMuted} />
+                            <Text style={styles.pickerFolderText}>{folder.name}</Text>
+                          </View>
+                          <Ionicons
+                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            color={colors.textMuted}
+                          />
+                        </TouchableOpacity>
+
+                        {isExpanded ? (
+                          folderItems.length === 0 ? (
+                            <Text style={styles.pickerEmptyText}>
+                              Все упражнения из этой папки уже добавлены
+                            </Text>
+                          ) : (
+                            folderItems.map(item => (
+                              <TouchableOpacity
+                                key={item.id}
+                                style={[styles.pickerRow, styles.pickerRowInFolder]}
+                                onPress={() => onPick(item.name)}
+                                testID={`day-editor-picker-option-${item.name}`}>
+                                <Text style={styles.pickerRowText}>{item.name}</Text>
+                                <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
+                              </TouchableOpacity>
+                            ))
+                          )
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null
             }
           />
         </TouchableOpacity>
@@ -88,7 +169,8 @@ function ExercisePickerModal({visible, onClose, exercises, selectedNames, onPick
 }
 
 export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
-  const {exercises, exerciseCoefficients, loadingExercises} = useExercises();
+  const {exercises, exerciseCoefficients, folders, folderExercises, loadingExercises} =
+    useExercises();
   const {selectedExercises, selectedExerciseNames, loadingSelected} =
     useSelectedExercises(userId);
 
@@ -663,6 +745,8 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
         exercises={exercises}
+        folders={folders}
+        folderExercises={folderExercises}
         selectedNames={displayedExerciseNames}
         onPick={handlePickExercise}
       />
@@ -861,10 +945,26 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.dividerLight,
   },
   pickerRowText: {...typography.body, color: colors.textPrimary},
+  pickerRowInFolder: {paddingLeft: 32, backgroundColor: colors.background},
   pickerEmptyText: {
     ...typography.caption,
     color: colors.textPlaceholder,
     textAlign: 'center',
     padding: 20,
   },
+  pickerFoldersSection: {
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    marginTop: 8,
+    paddingTop: 4,
+  },
+  pickerFolderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  pickerFolderNameRow: {flexDirection: 'row', alignItems: 'center'},
+  pickerFolderText: {...typography.body, color: colors.textPrimary, marginLeft: 8},
 });
