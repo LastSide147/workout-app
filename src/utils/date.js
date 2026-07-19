@@ -18,8 +18,9 @@ export function getStartOfWeekKey(date) {
 
 // Первое число текущего месяца в виде ключа даты
 export function getStartOfMonthKey(date) {
-  const d = new Date(date.getFullYear(), date.getMonth(), 1);
-  return getDateKey(d);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
 }
 
 // Входит ли dateKey в текущую неделю (понедельник–воскресенье)?

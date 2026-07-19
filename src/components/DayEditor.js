@@ -499,7 +499,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
               ]}
               onPress={() => handleSetStatus(status)}
               testID={`day-status-button-${status}`}>
-              <Text
+           <Text
                 style={[
                   styles.statusButtonText,
                   isActive ? styles.statusButtonTextActive : null,
@@ -692,8 +692,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       </View>
     ) : (
       <View>
-        <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
-
         {lockNotice}
 
         {statusBlock}
@@ -774,6 +772,9 @@ const styles = StyleSheet.create({
   },
 
   statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
+  // flex:1 у каждой кнопки + adjustsFontSizeToFit на тексте — все 3
+  // статуса гарантированно в одну строку на любом экране, шрифт сам
+  // уменьшается под самый длинный лейбл ("Травма/восстановление").
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
   statusButton: {
     paddingVertical: 8,
@@ -786,7 +787,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   statusButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
-  statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},
+  statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},  
   statusButtonTextActive: {color: colors.white},
 
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},

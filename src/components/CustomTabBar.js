@@ -1,14 +1,14 @@
 import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {Ionicons} from '@expo/vector-icons';
+import {Ionicons, AntDesign} from '@expo/vector-icons';
 import colors from '../theme/colors';
 
 const TAB_ICONS = {
-  Log: {active: 'barbell', inactive: 'barbell-outline'},
-  History: {active: 'calendar', inactive: 'calendar-outline'},
-  Statistics: {active: 'stats-chart', inactive: 'stats-chart-outline'},
-  Profile: {active: 'person-circle', inactive: 'person-circle-outline'},
+  Log: {component: AntDesign, active: 'fire', inactive: 'fire'},
+  History: {component: Ionicons, active: 'calendar', inactive: 'calendar-outline'},
+  Statistics: {component: Ionicons, active: 'stats-chart', inactive: 'stats-chart-outline'},
+  Profile: {component: Ionicons, active: 'person-circle', inactive: 'person-circle-outline'},
 };
 
 const ICON_SIZE_INACTIVE = 22;
@@ -24,6 +24,7 @@ const MIN_BOTTOM_INSET = 6;
 
 function TabButton({routeName, label, isFocused, onPress}) {
   const icons = TAB_ICONS[routeName] || TAB_ICONS.Log;
+  const IconComponent = icons.component;
   const iconName = isFocused ? icons.active : icons.inactive;
   const tintColor = isFocused ? colors.tabBarAccent : colors.textMuted;
 
@@ -33,7 +34,7 @@ function TabButton({routeName, label, isFocused, onPress}) {
       onPress={onPress}
       activeOpacity={0.7}
       testID={`tab-bar-button-${routeName}`}>
-      <Ionicons
+      <IconComponent
         name={iconName}
         size={isFocused ? ICON_SIZE_ACTIVE : ICON_SIZE_INACTIVE}
         color={tintColor}

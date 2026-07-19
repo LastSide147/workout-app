@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useCallback} from 'react';
+import React, {useEffect, useState, useCallback, useRef} from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import useExercises from '../hooks/useExercises';
 import ScreenContainer from '../components/ScreenContainer';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
+import {getRepsIntensityColor} from '../constants/repsIntensity';
 
 const PERIODS = [
   {key: 'day', label: 'День'},
@@ -44,6 +45,9 @@ function toDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
+// Нужна только для личного блока "Мои упражнения" — у него свои
+// данные, читаются напрямую по дням пользователя, без обращения к
+// бакетам рейтинга.
 function getStartKeyForPeriod(periodKey, referenceDate) {
   const date = new Date(referenceDate);
 
@@ -73,18 +77,27 @@ function getStartKeyForPeriod(periodKey, referenceDate) {
 
 const todayKey = getDateKey(new Date());
 
+
+
+// Сегментированный контрол (как переключатель вкладок в iOS) — одна
+// скруглённая "дорожка" на всю ширину, сегменты делят её поровну
+// (flex: 1 у каждого), активный сегмент — светлая "таблетка" внутри.
+// Используется и на самой странице, и внутри модалки полного рейтинга.
 function PeriodSelector({value, onChange, testIdPrefix}) {
   return (
-    <View style={styles.toggleRow}>
+    <View style={styles.segmentedTrack}>
       {PERIODS.map(({key, label}) => {
         const isActive = value === key;
         return (
           <TouchableOpacity
             key={key}
-            style={[styles.toggleButton, isActive && styles.toggleButtonActive]}
+            style={[styles.segment, isActive && styles.segmentActive]}
             onPress={() => onChange(key)}
             testID={`${testIdPrefix}-${key}`}>
-            <Text style={[styles.toggleText, isActive && styles.toggleTextActive]}>
+            <Text
+              style={[styles.segmentText, isActive && styles.segmentTextActive]}
+              numberOfLines={1}
+              adjustsFontSizeToFit>
               {label}
             </Text>
           </TouchableOpacity>
@@ -94,10 +107,9 @@ function PeriodSelector({value, onChange, testIdPrefix}) {
   );
 }
 
-// Компактное окно по центру экрана (не на весь экран), размер
-// подстраивается под количество упражнений — используется и для
-// коэффициентов, и для фильтра, и для полного рейтинга, чтобы
-// выглядело одинаково.
+// Компактное окно по центру экрана (не на весь экран) — используется
+// для коэффициентов, фильтра по упражнению и полного рейтинга, чтобы
+// выглядело одинаково: крупное скругление, тень, просторные отступы.
 function CenteredDropdownModal({visible, onClose, title, children}) {
   return (
     <Modal
@@ -135,14 +147,14 @@ function CoefficientsModal({visible, onClose, exercises}) {
         testID="statistics-coefficients-list"
         style={styles.dropdownList}
         showsVerticalScrollIndicator={false}
-        renderItem={({item}) => (
-          <View style={styles.modalRow}>
-            <Text style={styles.modalExerciseName}>{item.name}</Text>
-            <Text style={styles.modalCoefficientValue}>
-              {typeof item.coefficient === 'number' ? item.coefficient : '—'}
-            </Text>
-          </View>
-        )}
+              renderItem={({item}) => (
+                <View style={styles.personalRow}>
+                  <Text style={styles.personalExerciseText} numberOfLines={1}>
+                    {item.exercise}
+                  </Text>
+                  <Text style={styles.repsPillText}>{item.reps}</Text>
+                </View>
+              )}
         ListEmptyComponent={<Text style={styles.emptyText}>Список упражнений пуст</Text>}
       />
     </CenteredDropdownModal>
@@ -187,12 +199,10 @@ function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelec
 }
 
 // Одна строка рейтинга — используется и на странице (первые 15), и в
-// модалке с полным списком, чтобы вид был одинаковым в обоих местах.
-// Первые три места подсвечиваются золотом/серебром/бронзой. Между
-// строками больше нет линии-разделителя (borderBottom убран из
-// styles.row) — карточка текущего пользователя и так выделяется
-// рамкой, а остальным строкам разделитель только мешал, визуально
-// "резал" список.
+// модалке с полным списком. Первые три места подсвечиваются золотом/
+// серебром/бронзой. Теперь каждая строка — отдельная карточка (фон
+// recessed, скругление, отступ снизу), а не плотная строка с линией —
+// текущий пользователь получает поверх этого ещё рамку и подсветку.
 function LeaderboardRow({item, index, isCurrentUser}) {
   const rankColor = RANK_COLORS[index];
 
@@ -207,12 +217,37 @@ function LeaderboardRow({item, index, isCurrentUser}) {
 }
 
 // Модалка с полным рейтингом — открывается по тапу на заголовок
-// раздела или по кнопке "Показать весь рейтинг". В отличие от списка
-// на странице, тут своя прокрутка, потому что список здесь —
-// единственное содержимое модалки, а не часть общего скролла экрана.
-function LeaderboardModal({visible, onClose, leaderboard, currentUserId}) {
+// раздела или по кнопке "Показать весь рейтинг". Теперь внутри неё
+// тоже есть переключатель периода (или пояснение про "только
+// сегодня", если выбрано конкретное упражнение) — можно менять период
+// прямо здесь, не закрывая список. Список использует ту же
+// PeriodSelector/логику, что и страница — состояние общее, просто
+// передаётся сюда пропсами.
+function LeaderboardModal({
+  visible,
+  onClose,
+  leaderboard,
+  currentUserId,
+  isExerciseFilterActive,
+  leaderboardPeriod,
+  onPeriodChange,
+}) {
   return (
     <CenteredDropdownModal visible={visible} onClose={onClose} title="Рейтинг всех пользователей">
+      <View style={styles.modalPeriodWrapper}>
+        {isExerciseFilterActive ? (
+          <Text style={styles.leaderboardPeriodNote}>
+            Для конкретного упражнения — только сегодня
+          </Text>
+        ) : (
+          <PeriodSelector
+            value={leaderboardPeriod}
+            onChange={onPeriodChange}
+            testIdPrefix="statistics-leaderboard-modal-period"
+          />
+        )}
+      </View>
+
       <FlatList
         data={leaderboard}
         keyExtractor={item => item.userId}
@@ -249,10 +284,13 @@ export default function StatisticsScreen() {
   // напрямую, независимо от того, что показано построчно.
   const {exercises, loadingExercises} = useExercises();
   const exerciseNames = exercises.map(item => item.name);
+    const totalsRequestIdRef = useRef(0);
+
 
   const [totals, setTotals] = useState({});
   const [overallTotal, setOverallTotal] = useState(0);
   const [loadingTotals, setLoadingTotals] = useState(true);
+    const [totalsPeriod, setTotalsPeriod] = useState(null);
 
   const [leaderboard, setLeaderboard] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
@@ -271,12 +309,17 @@ export default function StatisticsScreen() {
   }, []);
 
   const personalStartKey = getStartKeyForPeriod(personalPeriod, new Date());
-  const leaderboardStartKey = getStartKeyForPeriod(leaderboardPeriod, new Date());
 
   const loadTotals = useCallback(async () => {
     if (!userId) {
       return;
     }
+
+    // Свой номерок для ЭТОГО конкретного запуска — увеличиваем общий
+    // счётчик и запоминаем значение именно для этого вызова.
+    const requestId = totalsRequestIdRef.current + 1;
+    totalsRequestIdRef.current = requestId;
+
     setLoadingTotals(true);
     try {
       const matchingDateKeys = Object.keys(days).filter(
@@ -290,6 +333,14 @@ export default function StatisticsScreen() {
         matchingDateKeys.map(dateKey => getDayEntries(userId, dateKey)),
       );
 
+      // Пока шёл этот запрос, пользователь мог уже переключить период —
+      // тогда запустился более новый запрос, и общий счётчик уже ушёл
+      // вперёд. Если наш номерок больше не совпадает с последним —
+      // значит, наш результат устарел, применять его нельзя.
+      if (totalsRequestIdRef.current !== requestId) {
+        return;
+      }
+
       const newTotals = {};
       let newOverallTotal = 0;
 
@@ -300,28 +351,41 @@ export default function StatisticsScreen() {
         });
       });
 
-      setTotals(newTotals);
+ setTotals(newTotals);
       setOverallTotal(newOverallTotal);
+      setTotalsPeriod(personalPeriod);
     } catch (error) {
       console.error('Ошибка подсчёта статистики:', error);
     } finally {
-      setLoadingTotals(false);
+      // "Загрузка..." тоже убираем только если это всё ещё самый
+      // свежий запрос — иначе устаревший запрос мог бы преждевременно
+      // погасить индикатор загрузки для актуального, ещё не готового.
+      if (totalsRequestIdRef.current === requestId) {
+        setLoadingTotals(false);
+      }
     }
-  }, [userId, days, personalStartKey]);
+  }, [userId, days, personalStartKey, personalPeriod]);
+
+  // Ограничение по периоду касается ТОЛЬКО просмотра конкретного
+  // упражнения (выбор из выпадающего списка) — там доступен только
+  // сегодняшний день. Общий рейтинг по баллам ("Все упражнения") по-
+  // прежнему можно смотреть за любой период.
+  const isExerciseFilterActive = leaderboardExercise !== ALL_EXERCISES_OPTION;
+  const effectiveLeaderboardPeriod = isExerciseFilterActive ? 'day' : leaderboardPeriod;
 
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
     try {
       const filter =
         leaderboardExercise === ALL_EXERCISES_OPTION ? null : leaderboardExercise;
-      const result = await fetchLeaderboard(leaderboardStartKey, todayKey, filter);
+      const result = await fetchLeaderboard(effectiveLeaderboardPeriod, filter);
       setLeaderboard(result);
     } catch (error) {
       console.error('Ошибка загрузки рейтинга:', error);
     } finally {
       setLoadingLeaderboard(false);
     }
-  }, [leaderboardStartKey, leaderboardExercise]);
+  }, [effectiveLeaderboardPeriod, leaderboardExercise]);
 
   useEffect(() => {
     loadTotals();
@@ -333,6 +397,17 @@ export default function StatisticsScreen() {
     }, [loadLeaderboard]),
   );
 
+  // Когда выбирают конкретное упражнение в фильтре — период сразу
+  // сбрасывается на "день", чтобы после возврата к "Все упражнения"
+  // не оставался незаметно выбранным какой-то другой период "из
+  // прошлого раза" для просмотра по баллам.
+  const handleSelectLeaderboardExercise = value => {
+    setLeaderboardExercise(value);
+    if (value !== ALL_EXERCISES_OPTION) {
+      setLeaderboardPeriod('day');
+    }
+  };
+
   const list = exerciseNames
     .filter(exercise => totals[exercise] > 0)
     .map(exercise => ({exercise, reps: totals[exercise]}));
@@ -343,12 +418,7 @@ export default function StatisticsScreen() {
     <ScreenContainer>
       <Text style={styles.title}>Статистика</Text>
 
-      {/* Блок 1: личная статистика пользователя за выбранный период.
-          Каждое упражнение — отдельная карточка-строка (фон chip,
-          скруглённые углы) с числом повторений в виде "пилюли"
-          справа — без линий-разделителей между строками, компактная
-          подпись "Повторения" сверху вместо длинного "Количество
-          повторений". */}
+      {/* Блок 1: личная статистика пользователя за выбранный период. */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Мои упражнения</Text>
         <PeriodSelector
@@ -357,41 +427,59 @@ export default function StatisticsScreen() {
           testIdPrefix="statistics-personal-period"
         />
 
-        {loadingExercises || loadingTotals ? (
+        {loadingExercises || loadingTotals || totalsPeriod !== personalPeriod ? (
           <Text style={styles.emptyText}>Загрузка...</Text>
-        ) : list.length === 0 ? (
-          <Text style={styles.emptyText}>Нет данных за этот период</Text>
         ) : (
           <>
-            <View style={styles.columnHeaderRow}>
-              <Text style={styles.columnHeaderText}>Повторения</Text>
-            </View>
-            <FlatList
-              data={list}
-              keyExtractor={item => item.exercise}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={false}
-              renderItem={({item}) => (
-                <View style={styles.personalRow}>
-                  <Text style={styles.personalExerciseText} numberOfLines={1}>
-                    {item.exercise}
-                  </Text>
-                  <Text style={styles.repsPillText}>{item.reps}</Text>
+            {list.length === 0 ? (
+              <Text style={styles.emptyText}>Нет данных за этот период</Text>
+            ) : (
+              <>
+                <View style={styles.columnHeaderRow}>
+                  <Text style={styles.columnHeaderText}>Повторения</Text>
                 </View>
-              )}
-            />
+                <FlatList
+                  data={list}
+                  keyExtractor={item => item.exercise}
+                  showsVerticalScrollIndicator={false}
+                  scrollEnabled={false}
+                  renderItem={({item}) => (
+                    <View style={styles.personalRow}>
+                      <Text style={styles.personalExerciseText} numberOfLines={1}>
+                        {item.exercise}
+                      </Text>
+                      <Text style={styles.repsPillText}>{item.reps}</Text>
+                    </View>
+                  )}
+                />
+              </>
+            )}
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Всего</Text>
+              <Text
+                style={[
+                  styles.totalValue,
+                  // Подсветка — только для периода "День": там "Всего"
+                  // и есть повторения ровно за один день, пороги
+                  // 100/300 применимы напрямую. Для недели/месяца/3
+                  // месяцев/года это уже не "день", а сумма за много
+                  // дней — там цвет не красим, остаётся обычный.
+                  personalPeriod === 'day'
+                    ? {color: getRepsIntensityColor(overallTotal)}
+                    : null,
+                ]}>
+                {overallTotal}
+              </Text>
+            </View>
           </>
         )}
-
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Всего</Text>
-          <Text style={styles.totalValue}>{overallTotal}</Text>
-        </View>
       </View>
-
-      {/* Блок 2: общий рейтинг всех пользователей — отдельная карточка,
-          явно отделённая от личной статистики выше. Заголовок кликабелен
-          и открывает модалку с полным списком (со своей прокруткой). */}
+      {/* Блок 2: общий рейтинг всех пользователей. Переключатель периода
+          показывается только пока выбрано "Все упражнения" (рейтинг по
+          баллам). Кнопка выбора упражнения теперь — скруглённая пилюля,
+          как и переключатель периода (тот же стиль, что "элемент выбора
+          даты"). */}
       <View style={styles.sectionCard}>
         <View style={styles.leaderboardHeaderRow}>
           <TouchableOpacity
@@ -407,11 +495,17 @@ export default function StatisticsScreen() {
           </TouchableOpacity>
         </View>
 
-        <PeriodSelector
-          value={leaderboardPeriod}
-          onChange={setLeaderboardPeriod}
-          testIdPrefix="statistics-leaderboard-period"
-        />
+        {isExerciseFilterActive ? (
+          <Text style={styles.leaderboardPeriodNote}>
+            Для конкретного упражнения показывается только сегодня
+          </Text>
+        ) : (
+          <PeriodSelector
+            value={leaderboardPeriod}
+            onChange={setLeaderboardPeriod}
+            testIdPrefix="statistics-leaderboard-period"
+          />
+        )}
 
         <TouchableOpacity
           style={styles.exerciseFilterButton}
@@ -462,7 +556,7 @@ export default function StatisticsScreen() {
         onClose={() => setExerciseFilterVisible(false)}
         exerciseNames={exerciseNames}
         selected={leaderboardExercise}
-        onSelect={setLeaderboardExercise}
+        onSelect={handleSelectLeaderboardExercise}
       />
 
       <LeaderboardModal
@@ -470,6 +564,9 @@ export default function StatisticsScreen() {
         onClose={() => setLeaderboardModalVisible(false)}
         leaderboard={leaderboard}
         currentUserId={userId}
+        isExerciseFilterActive={isExerciseFilterActive}
+        leaderboardPeriod={leaderboardPeriod}
+        onPeriodChange={setLeaderboardPeriod}
       />
     </ScreenContainer>
   );
@@ -490,20 +587,26 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  toggleRow: {flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16},
-  toggleButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+  segmentedTrack: {
+    flexDirection: 'row',
+    backgroundColor: colors.background,
     borderRadius: 20,
+    padding: 3,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.chip,
-    marginRight: 8,
-    marginBottom: 8,
   },
-  toggleButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
-  toggleText: {...typography.buttonSmall, fontSize: 13, color: colors.textPrimary},
-  toggleTextActive: {color: colors.white},
+  segment: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentActive: {backgroundColor: colors.primary},
+  segmentText: {...typography.buttonSmall, fontSize: 12, color: colors.textSecondary},
+  segmentTextActive: {color: colors.white, fontWeight: 'bold'},
+
   sectionTitle: {...typography.sectionTitle, marginBottom: 8, color: colors.textPrimary},
   sectionTitleNoMargin: {...typography.sectionTitle, color: colors.textPrimary},
   leaderboardHeaderRow: {
@@ -516,8 +619,13 @@ const styles = StyleSheet.create({
   loader: {marginTop: 12},
   emptyText: {...typography.caption, fontSize: 14, color: colors.textPlaceholder, marginTop: 4, marginBottom: 12},
 
-  // Подпись-заголовок над колонкой повторений в блоке "Мои упражнения"
-  // — короткое "Повторения" вместо длинного "Количество повторений"
+  leaderboardPeriodNote: {
+    ...typography.caption,
+    fontSize: 13,
+    color: colors.textMuted,
+    marginBottom: 12,
+  },
+
   columnHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -526,67 +634,66 @@ const styles = StyleSheet.create({
   },
   columnHeaderText: {...typography.caption, fontSize: 13, color: colors.textMuted},
 
-  // Карточка-строка одного упражнения в "Мои упражнения" — свой,
-  // отдельный от рейтинга стиль (в отличие от styles.row, который
-  // теперь используется только рейтингом). Название слева, число
-  // повторений — простым цветным текстом справа, без фона/обводки
-  // вокруг него и без линий-разделителей между карточками. Фон —
-  // colors.recessed (темнее самого background), а не chip — раньше
-  // строка была светлее фона экрана, теперь наоборот, слегка утоплена.
   personalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: colors.recessed,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginBottom: 4,
   },
   personalExerciseText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1, marginRight: 12},
   repsPillText: {...typography.number, fontSize: 16, color: colors.primary},
 
-  // Строка рейтинга (используется только LeaderboardRow). Линия-
-  // разделитель между строками убрана намеренно — резала список,
-  // текущий пользователь и так виден по рамке rowHighlighted.
-  row: {
+  // Каждая строка рейтинга — теперь отдельная карточка (фон recessed,
+  // скругление, отступ снизу между карточками), а не плотная строка с
+  // линией-разделителем. Текущий пользователь получает поверх этого
+  // ещё цветной фон и рамку (rowHighlighted).
+ row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    alignItems: 'center',
+    backgroundColor: colors.recessed,
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginBottom: 4,
   },
   rowHighlighted: {
     backgroundColor: colors.primaryLight,
-    borderRadius: 12,
-    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: colors.primary,
-    marginVertical: 2,
   },
   exerciseText: {...typography.bodyBold, color: colors.textPrimary},
   repsText: {...typography.number, color: colors.primary},
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 14,
-    marginTop: 4,
-    marginBottom: 0,
-    borderTopWidth: 2,
-    borderTopColor: colors.primary,
+    alignItems: 'center',
+    backgroundColor: colors.recessed,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    marginTop: 8,
   },
   totalLabel: {...typography.sectionTitle, fontSize: 18, color: colors.textPrimary},
   totalValue: {...typography.number, fontSize: 18, color: colors.primary},
 
+  // Кнопка выбора упражнения — теперь такая же скруглённая "пилюля",
+  // как и переключатель периода (тот же фон/бордер, что у
+  // segmentedTrack), а не отдельный прямоугольный стиль.
   exerciseFilterButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.chip,
-    borderRadius: 8,
+    backgroundColor: colors.background,
+    borderRadius: 20,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
   exerciseFilterButtonText: {...typography.body, fontSize: 15, color: colors.textPrimary},
@@ -609,33 +716,51 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // Крупнее скругление и тень — раньше карточка выглядела "плоско" и
+  // ощущалась недоделанной.
   dropdownCard: {
-    width: '82%',
-    maxHeight: '60%',
+    width: '86%',
+    maxHeight: '68%',
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 20,
     overflow: 'hidden',
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   dropdownHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
   dropdownTitle: {...typography.sectionTitle, fontSize: 16, color: colors.textPrimary},
-  dropdownList: {flexGrow: 0},
+  // Отступы вокруг самого списка — раньше строки шли вплотную к краям
+  // карточки, из-за чего всё выглядело "слипшимся".
+  dropdownList: {flexGrow: 0, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4},
+
+  // Обёртка переключателя периода внутри модалки рейтинга — свой
+  // горизонтальный отступ, т.к. сам PeriodSelector не находится внутри
+  // dropdownList (он отдельный элемент над списком).
+  modalPeriodWrapper: {paddingHorizontal: 14, paddingTop: 12},
 
   modalCloseIcon: {fontSize: 18, color: colors.textPrimary},
+  // Строки коэффициентов и фильтра — теперь тоже карточки (фон
+  // recessed, скругление, отступ снизу) вместо плотных строк с линией.
   modalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    alignItems: 'center',
+    backgroundColor: colors.recessed,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.dividerLight,
+    marginBottom: 8,
   },
   modalExerciseName: {...typography.body, color: colors.textPrimary},
   modalCoefficientValue: {...typography.number, color: colors.primary},
@@ -643,10 +768,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    backgroundColor: colors.recessed,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.dividerLight,
+    marginBottom: 8,
   },
   modalOptionText: {...typography.body, color: colors.textPrimary},
   modalOptionTextActive: {color: colors.primary, fontWeight: 'bold'},

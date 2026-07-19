@@ -1,5 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import {getWithOfflineFallback, saveWithOfflineFallback} from './offlineSync';
+import {addBonusToBatch} from './ratings';
 import {getDateKey, getStartOfWeekKey} from '../utils/date';
 
 export const WEEKLY_BONUS_POINTS = 200;
@@ -14,21 +15,6 @@ function weeklyBonusMarkerDoc(userId, weekStartKey) {
     .doc(userId)
     .collection('weeklyBonuses')
     .doc(weekStartKey);
-}
-
-// Сам бонус кладём в ту же коллекцию, что и обычный рейтинг дня
-// (ratings/{userId}/days), чтобы он автоматически попадал в подсчёт
-// лидерборда (fetchLeaderboard в services/ratings.js суммирует ВСЕ
-// документы этой коллекции за период). Но id документа — НЕ дата, а
-// отдельный суффикс "-weekly-bonus": если бы мы использовали обычный
-// dateKey, следующее же сохранение тренировки за этот день (см.
-// saveDayRating) целиком перезаписало бы документ и стёрло бы бонус.
-function weeklyBonusRatingDoc(userId, weekStartKey) {
-  return firestore()
-    .collection('ratings')
-    .doc(userId)
-    .collection('days')
-    .doc(`${weekStartKey}-weekly-bonus`);
 }
 
 // Понедельник..воскресенье текущей недели в виде массива ключей дат.
@@ -56,8 +42,8 @@ function isDayFilled(dayData) {
 }
 
 // Проверяет текущую неделю и, если она заполнена целиком и бонус за
-// неё ещё не начислялся, начисляет 200 баллов и запоминает это
-// навсегда.
+// неё ещё не начислялся, начисляет 200 баллов (в общий рейтинг —
+// через бакеты в services/ratings.js) и запоминает это навсегда.
 //
 // Возвращает объект с полем status:
 //  - 'incomplete'       — неделя ещё не заполнена целиком, ничего не делаем
@@ -89,13 +75,16 @@ export async function checkAndAwardWeeklyBonus(userId, days) {
     awardedAt: firestore.FieldValue.serverTimestamp(),
   });
 
-  batch.set(weeklyBonusRatingDoc(userId, weekStartKey), {
-    rating: WEEKLY_BONUS_POINTS,
-    byExercise: {},
-    date: getDateKey(new Date()),
-    type: 'weekly_bonus',
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  });
+  // Один и тот же batch — метка о начислении и сам бонус (плюс его
+  // прибавление в бакеты рейтинга) уходят в базу одной атомарной
+  // пачкой, как и раньше.
+  addBonusToBatch(
+    batch,
+    userId,
+    `${weekStartKey}-weekly-bonus`,
+    getDateKey(new Date()),
+    WEEKLY_BONUS_POINTS,
+  );
 
   const result = await saveWithOfflineFallback(batch.commit());
 

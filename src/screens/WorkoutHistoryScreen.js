@@ -3,7 +3,11 @@ import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
-import {recalculateAllRatings} from '../services/ratings';
+import {
+  recalculateAllRatings,
+  ensureBucketsBackfilled,
+  ensureMonthBucketsMigrated,
+} from '../services/ratings';
 import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
 import {getDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
@@ -32,6 +36,43 @@ LocaleConfig.locales['ru'] = {
 LocaleConfig.defaultLocale = 'ru';
 
 const todayKey = getDateKey(new Date());
+
+// Размер кружка-индикатора обычного дня и сегодняшнего — сегодняшний
+// заметно крупнее, чтобы сразу бросался в глаза в календаре, а не
+// терялся среди обычных цветных отметок.
+const REGULAR_DOT_SIZE = 30;
+const TODAY_DOT_SIZE = 38;
+
+// Строит стиль одного дня календаря (нужен markingType="custom" на
+// самом Calendar — см. ниже). Два независимых признака дня:
+//  - isToday увеличивает размер кружка;
+//  - isSelected (тапнутый пользователем день) добавляет рамку поверх
+//    кружка.
+// Один и тот же день может быть одновременно "сегодня" (большой
+// кружок) и "выбранным" (с рамкой) без визуального конфликта — это
+// два разных свойства стиля (размер и обводка), а не альтернативы.
+function buildDayCustomStyle({color, isToday, isSelected}) {
+  const size = isToday ? TODAY_DOT_SIZE : REGULAR_DOT_SIZE;
+  const hasBackground = Boolean(color) || isSelected;
+  const backgroundColor = color || (isSelected ? colors.chip : 'transparent');
+
+  return {
+    container: {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor,
+      borderWidth: isSelected ? 2 : 0,
+      borderColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    text: {
+      color: hasBackground ? colors.white : colors.textPrimary,
+      fontWeight: isToday ? 'bold' : 'normal',
+    },
+  };
+}
 
 export default function WorkoutHistoryScreen() {
   const [userId, setUserId] = useState(null);
@@ -65,32 +106,48 @@ export default function WorkoutHistoryScreen() {
     ) {
       recalculatedRef.current = true;
       recalculateAllRatings(userId, days, exerciseCoefficients);
+
+      // Разовый (на пользователя, навсегда) бэкфилл бакетов рейтинга
+      // из уже накопленной истории — см. подробное пояснение в
+      // services/ratings.js. Работает независимо от recalculateAllRatings
+      // и сам себя защищает от повторного запуска флагом в профиле.
+      ensureBucketsBackfilled(userId, days, exerciseCoefficients);
+
+      // Разовая починка месячных бакетов после смены формата их ключа
+      // (см. подробности в services/ratings.js) — тоже сама себя
+      // защищает от повторного запуска и ничего не трогает у аккаунтов,
+      // которые уже прошли эту миграцию.
+      ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
     }
   }, [userId, days, loadingExercises, exerciseCoefficients]);
 
+  // markingType="custom" на Calendar ниже включает полностью ручное
+  // управление стилем каждого дня через customStyles (container/text) —
+  // это единственный способ сделать кружок сегодняшнего дня БОЛЬШЕ
+  // остальных, обычный markingType с selectedColor размер не меняет.
   const marked = {};
-  Object.keys(days).forEach(dateKey => {
+  const relevantDateKeys = new Set([...Object.keys(days), todayKey, selectedDate]);
+
+  relevantDateKeys.forEach(dateKey => {
     const data = days[dateKey];
     let color = null;
 
-    if (data.hasExercises) {
-      color = STATUS_COLORS.workout;
-    } else if (data.status) {
-      color = STATUS_COLORS[data.status];
+    if (data) {
+      if (data.hasExercises) {
+        color = STATUS_COLORS.workout;
+      } else if (data.status) {
+        color = STATUS_COLORS[data.status];
+      }
     }
 
-    if (color) {
-      marked[dateKey] = {selected: true, selectedColor: color};
-    }
+    marked[dateKey] = {
+      customStyles: buildDayCustomStyle({
+        color,
+        isToday: dateKey === todayKey,
+        isSelected: dateKey === selectedDate,
+      }),
+    };
   });
-
-  marked[selectedDate] = {
-    ...marked[selectedDate],
-    selected: true,
-    selectedColor: marked[selectedDate]
-      ? marked[selectedDate].selectedColor
-      : colors.primary,
-  };
 
   const handleDayPress = day => {
     setSelectedDate(day.dateString);
@@ -106,6 +163,7 @@ export default function WorkoutHistoryScreen() {
         <View style={styles.calendarCard}>
           <Calendar
             markedDates={marked}
+            markingType="custom"
             onDayPress={handleDayPress}
             firstDay={1}
             theme={{
@@ -113,14 +171,9 @@ export default function WorkoutHistoryScreen() {
               calendarBackground: colors.surface,
               textSectionTitleColor: colors.textMuted,
               dayTextColor: colors.textPrimary,
-              todayTextColor: colors.primary,
-              selectedDayBackgroundColor: colors.primary,
-              selectedDayTextColor: colors.white,
               monthTextColor: colors.textPrimary,
               arrowColor: colors.primary,
               textDisabledColor: colors.textPlaceholder,
-              dotColor: colors.primary,
-              selectedDotColor: colors.white,
             }}
           />
         </View>

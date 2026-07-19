@@ -4,7 +4,7 @@ const MAX_NAME_LENGTH = 50;
 const MIN_COEFFICIENT = 0.01;
 const MAX_COEFFICIENT = 100;
 
-const VALID_NAME_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s\-()]+$/u;
+const VALID_NAME_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s\-()+]+$/u;
 
 function exercisesCollection() {
   return firestore().collection('exercises');
@@ -22,7 +22,7 @@ function validateName(rawName, existingNames, emptyError) {
   if (!VALID_NAME_REGEX.test(name)) {
     return {
       valid: false,
-      error: 'Разрешены только буквы, цифры, пробелы, дефис и скобки',
+      error: 'Разрешены только буквы, цифры, пробелы, дефис, плюс и скобки',
     };
   }
 
