@@ -1,6 +1,7 @@
 {
   "name": "WorkoutApp",
   "displayName": "Upset",
+  "icon": "./assets/icon.png",
   "extra": {
     "eas": {
       "projectId": "61f4feca-0960-4b26-9a03-f991bc135253"
@@ -12,7 +13,13 @@
     "url": "https://u.expo.dev/61f4feca-0960-4b26-9a03-f991bc135253",
     "checkAutomatically": "NEVER"
   },
-  "android": {},
+  "android": {
+    "adaptiveIcon": {
+      "foregroundImage": "./assets/adaptive-icon.png",
+      "backgroundColor": "#F2EDEA"
+    },
+    "package": "com.artemzem.workoutapp"
+  },
   "ios": {},
   "plugins": [
     "expo-updates"

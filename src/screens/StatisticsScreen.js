@@ -9,7 +9,6 @@ import {
   Modal,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
-import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
 import {fetchLeaderboard} from '../services/ratings';
 import {getDateKey} from '../utils/date';
@@ -267,8 +266,7 @@ function LeaderboardModal({
   );
 }
 
-export default function StatisticsScreen() {
-  const [userId, setUserId] = useState(null);
+export default function StatisticsScreen({userId}) {
   const [days, setDays] = useState({});
 
   const [personalPeriod, setPersonalPeriod] = useState('week');
@@ -300,13 +298,9 @@ export default function StatisticsScreen() {
   const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
 
   useEffect(() => {
-    let unsubscribe;
-    ensureSignedIn().then(uid => {
-      setUserId(uid);
-      unsubscribe = subscribeToWorkoutDays(uid, setDays);
-    });
+    const unsubscribe = subscribeToWorkoutDays(userId, setDays);
     return () => unsubscribe && unsubscribe();
-  }, []);
+  }, [userId]);
 
   const personalStartKey = getStartKeyForPeriod(personalPeriod, new Date());
 

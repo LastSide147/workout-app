@@ -1,7 +1,6 @@
 import React, {useEffect, useState, useRef} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
-import {ensureSignedIn} from '../services/firebase';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
 import {
   recalculateAllRatings,
@@ -74,8 +73,7 @@ function buildDayCustomStyle({color, isToday, isSelected}) {
   };
 }
 
-export default function WorkoutHistoryScreen() {
-  const [userId, setUserId] = useState(null);
+export default function WorkoutHistoryScreen({userId}) {
   const [days, setDays] = useState({});
   const [selectedDate, setSelectedDate] = useState(todayKey);
 
@@ -84,18 +82,13 @@ export default function WorkoutHistoryScreen() {
 
   const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
 
+  // userId приходит готовым пропом из App.js (см. пояснение в
+  // WorkoutLogScreen.js) — здесь достаточно просто подписаться на дни
+  // тренировок этого пользователя.
   useEffect(() => {
-    let unsubscribe;
-    ensureSignedIn().then(uid => {
-      setUserId(uid);
-      unsubscribe = subscribeToWorkoutDays(uid, setDays);
-    });
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
+    const unsubscribe = subscribeToWorkoutDays(userId, setDays);
+    return () => unsubscribe && unsubscribe();
+  }, [userId]);
 
   useEffect(() => {
     if (

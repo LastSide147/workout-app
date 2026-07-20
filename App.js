@@ -86,21 +86,15 @@ export default function App() {
               animation: 'none',
             }}
             tabBar={props => <CustomTabBar {...props} />}>
-            <Tab.Screen
-              name="Log"
-              component={WorkoutLogScreen}
-              options={{title: 'Тренировка'}}
-            />
-            <Tab.Screen
-              name="History"
-              component={WorkoutHistoryScreen}
-              options={{title: 'История'}}
-            />
-            <Tab.Screen
-              name="Statistics"
-              component={StatisticsScreen}
-              options={{title: 'Статистика'}}
-            />
+           <Tab.Screen name="Log" options={{title: 'Тренировка'}}>
+              {() => <WorkoutLogScreen userId={user.uid} />}
+            </Tab.Screen>
+            <Tab.Screen name="History" options={{title: 'История'}}>
+              {() => <WorkoutHistoryScreen userId={user.uid} />}
+            </Tab.Screen>
+            <Tab.Screen name="Statistics" options={{title: 'Статистика'}}>
+              {() => <StatisticsScreen userId={user.uid} />}
+            </Tab.Screen>
             <Tab.Screen
               name="Profile"
               component={ProfileScreen}
