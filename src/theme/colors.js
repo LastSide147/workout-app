@@ -8,7 +8,7 @@
 // свой цвет, заводите новый именованный токен здесь, а не пишите hex
 // прямо в компоненте.
 const colors = {
-  primary: '#c77f03',
+  primary: '#ff5e00',
   primaryLight: 'rgba(191, 82, 0, 0.18)',
   tabBarAccent: '#FF6D00',
 

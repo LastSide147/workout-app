@@ -1,4 +1,4 @@
-package com.artemzem.workoutapp
+package com.workoutapp
 
 import android.app.Application
 import android.content.res.Configuration

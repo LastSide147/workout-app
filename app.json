@@ -1,5 +1,5 @@
 {
-  "name": "WorkoutApp",
+  "name": "Upset",
   "displayName": "Upset",
   "icon": "./assets/icon.png",
   "extra": {
@@ -18,10 +18,16 @@
       "foregroundImage": "./assets/adaptive-icon.png",
       "backgroundColor": "#F2EDEA"
     },
-    "package": "com.artemzem.workoutapp"
+    "package": "com.workoutapp",
+    "googleServicesFile": "./google-services.json"
+
   },
-  "ios": {},
+  "ios": {
+    "bundleIdentifier": "com.workoutapp",
+  "googleServicesFile": "./GoogleService-Info.plist"
+  },
   "plugins": [
-    "expo-updates"
+    "expo-updates",
+    "@react-native-firebase/app"
   ]
 }
