@@ -1,5 +1,6 @@
 {
   "name": "Upset",
+  "slug": "workoutapp",
   "displayName": "Upset",
   "icon": "./assets/icon.png",
   "extra": {
