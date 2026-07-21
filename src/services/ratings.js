@@ -81,19 +81,25 @@ function applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExer
   const bucketKeys = getBucketKeysForDate(dateKey);
 
   Object.values(bucketKeys).forEach(periodKey => {
+    // Собираем вложенный объект byExercise явно (а не через строку с
+    // точкой вида 'byExercise.Название') — так set({merge:true})
+    // гарантированно мёржит его как настоящую вложенную карту
+    // byExercise: {...}, а не создаёт отдельное плоское поле с точкой
+    // в названии. Именно из-за строкового ключа с точкой поле
+    // byExercise раньше не появлялось в документе как надо.
+    const byExerciseUpdate = {};
+    Object.keys(byExerciseDelta).forEach(exercise => {
+      if (byExerciseDelta[exercise]) {
+        byExerciseUpdate[exercise] = firestore.FieldValue.increment(byExerciseDelta[exercise]);
+      }
+    });
+
     const update = {
       nickname,
       updatedAt: firestore.FieldValue.serverTimestamp(),
       rating: firestore.FieldValue.increment(ratingDelta),
+      byExercise: byExerciseUpdate,
     };
-
-    Object.keys(byExerciseDelta).forEach(exercise => {
-      if (byExerciseDelta[exercise]) {
-        update[`byExercise.${exercise}`] = firestore.FieldValue.increment(
-          byExerciseDelta[exercise],
-        );
-      }
-    });
 
     batch.set(bucketUserDoc(periodKey, userId), update, {merge: true});
   });

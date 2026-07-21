@@ -95,11 +95,32 @@ export async function getWithOfflineFallback(query, timeoutMs = DEFAULT_READ_TIM
       ),
     ]);
   } catch (error) {
-    // Сеть недоступна или сервер не ответил вовремя — берём то, что
-    // уже есть на диске. Если кэша тоже нет (например, первый запуск
-    // приложения офлайн), .get({source: 'cache'}) сам бросит ошибку
-    // firestore/unavailable — даём ей уйти выше по стеку, вызывающий
-    // код должен её обработать (например, показать "Нет данных офлайн").
-    return query.get({source: 'cache'});
+    const cached = await query.get({source: 'cache'});
+
+    // Пустой кэш у ЗАПРОСА КОЛЛЕКЦИИ (в отличие от одиночного
+    // документа) ничего не доказывает: так же выглядит и "данных нет",
+    // и "эта коллекция на устройстве ещё не кэшировалась" — например,
+    // бакет статистики за сегодняшний день, который создаётся заново
+    // каждые сутки. Раньше в этом случае мы сразу верили пустому кэшу,
+    // и статистика за сегодня ошибочно показывалась как "нет данных",
+    // хотя на сервере данные были — сеть просто ответила чуть позже
+    // таймаута. Поэтому для пустой коллекции даём сети ещё один, более
+    // долгий шанс, прежде чем поверить, что данных правда нет.
+    const isEmptyCollectionSnapshot = typeof cached.empty === 'boolean' && cached.empty === true;
+
+    if (isEmptyCollectionSnapshot) {
+      try {
+        return await Promise.race([
+          query.get(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('OFFLINE_READ_TIMEOUT_RETRY')), timeoutMs * 2),
+          ),
+        ]);
+      } catch (retryError) {
+        return cached;
+      }
+    }
+
+    return cached;
   }
 }

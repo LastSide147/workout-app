@@ -491,7 +491,7 @@ export default function StatisticsScreen({userId}) {
 
         {isExerciseFilterActive ? (
           <Text style={styles.leaderboardPeriodNote}>
-            Для конкретного упражнения показывается только сегодня
+            Только для текущего дня
           </Text>
         ) : (
           <PeriodSelector
