@@ -16,7 +16,7 @@ import useSelectedExercises from '../hooks/useSelectedExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
 import {
   getDay,
-  getDayEntries,
+  subscribeToDayEntries,
   setExerciseEntry,
   deleteExerciseEntry,
   setStatusForDate,
@@ -27,9 +27,7 @@ import {
   removeSelectedExercise,
 } from '../services/selectedExercises';
 import {
-  computeDayRating,
-  computeDayRepsByExercise,
-  saveDayRating,
+  recalculateDayRating,
   deleteDayRating,
   upsertProfileNickname,
 } from '../services/ratings';
@@ -204,23 +202,13 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     }
   }, [userId]);
 
-  const loadData = useCallback(async () => {
-    const entries = await getDayEntries(userId, dateKey);
+ // Статус дня (Пропустил/Выходной/Травма) — разовое чтение ОДНОГО
+  // документа. Для одиночного doc.get() офлайн-кэш надёжен и без
+  // подписки, поэтому оставляем как было, только выносим отдельно от
+  // записей упражнений.
+  const loadDayStatus = useCallback(async () => {
     const day = await getDay(userId, dateKey);
-
-    const looksIncomplete = entries.length === 0 && day && day.hasExercises;
-
-    if (!looksIncomplete) {
-      const repsMap = {};
-      entries.forEach(item => {
-        repsMap[item.exercise] = item.reps;
-      });
-      setExerciseReps(repsMap);
-      originalNamesRef.current = entries.map(item => item.exercise);
-    }
-
     setDayStatus(day ? day.status || null : null);
-    setLoaded(true);
   }, [userId, dateKey]);
 
   useEffect(() => {
@@ -231,16 +219,40 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
     setIsEditingExercises(false);
     setPickerVisible(false);
 
-    if (userId) {
-      loadData();
+    if (!userId) {
+      return undefined;
     }
+
+    loadDayStatus();
+
+    // Записи дня — теперь ЖИВАЯ ПОДПИСКА, а не разовое чтение (см.
+    // подробное пояснение в services/workoutDays.js у
+    // subscribeToDayEntries). Пока пользователь сам редактирует день
+    // (isDirty) — не перетираем его текущий ввод входящими данными
+    // подписки, чтобы поле не "прыгало" прямо во время правки.
+    const unsubscribe = subscribeToDayEntries(userId, dateKey, entries => {
+      if (isDirtyRef.current) {
+        return;
+      }
+      const repsMap = {};
+      entries.forEach(item => {
+        repsMap[item.exercise] = item.reps;
+      });
+      setExerciseReps(repsMap);
+      originalNamesRef.current = entries.map(item => item.exercise);
+      setLoaded(true);
+    });
+
+    return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateKey, userId]);
 
   useFocusEffect(
     useCallback(() => {
+      // Записи теперь сами обновляются через подписку — на фокусе
+      // достаточно перечитать только статус дня (он читается разово).
       if (userId && loaded && !isDirtyRef.current) {
-        loadData();
+        loadDayStatus();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId, loaded, dateKey]),
@@ -299,15 +311,9 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         originalNamesRef.current = [...originalNamesRef.current, exercise];
       }
 
-      const exercisesList = Object.keys(updatedReps).map(name => ({
-        exercise: name,
-        reps: updatedReps[name],
-      }));
-      const rating = computeDayRating(exercisesList, exerciseCoefficients);
-      const byExercise = computeDayRepsByExercise(exercisesList);
-queueRatingWrite(() => saveDayRating(userId, dateKey, rating, byExercise)).catch(error =>
-        console.error('Рейтинг дня синхронизируется позже:', error),
-      );
+      queueRatingWrite(() =>
+        recalculateDayRating(userId, dateKey, exerciseCoefficients),
+      ).catch(error => console.error('Рейтинг дня синхронизируется позже:', error));
 
       if (onSaved) {
         onSaved();
@@ -342,16 +348,11 @@ queueRatingWrite(() => saveDayRating(userId, dateKey, rating, byExercise)).catch
         queueRatingWrite(() => deleteDayRating(userId, dateKey)).catch(error =>
           console.error('Удаление рейтинга дня отложено до сети:', error),
         );
+
       } else {
-        const exercisesList = remainingNames.map(name => ({
-          exercise: name,
-          reps: updatedReps[name],
-        }));
-        const rating = computeDayRating(exercisesList, exerciseCoefficients);
-        const byExercise = computeDayRepsByExercise(exercisesList);
-        queueRatingWrite(() => saveDayRating(userId, dateKey, rating, byExercise)).catch(error =>
-          console.error('Рейтинг дня синхронизируется позже:', error),
-        );
+        queueRatingWrite(() =>
+          recalculateDayRating(userId, dateKey, exerciseCoefficients),
+        ).catch(error => console.error('Рейтинг дня синхронизируется позже:', error));
       }
 
       if (onSaved) {

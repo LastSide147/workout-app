@@ -20,7 +20,9 @@
       "backgroundColor": "#F2EDEA"
     },
     "package": "com.workoutapp",
-    "googleServicesFile": "./google-services.json"
+    "googleServicesFile": "./google-services.json",
+        "softwareKeyboardLayoutMode": "resize"
+
 
   },
   "ios": {

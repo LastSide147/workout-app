@@ -570,19 +570,7 @@ export default function StatisticsScreen({userId}) {
                       <Text style={styles.personalExerciseText} numberOfLines={1}>
                         {item.exercise}
                       </Text>
-                      <Text
-                        style={[
-                          styles.repsPillText,
-                          // Градация цвета — только для периода "День":
-                          // для недели/месяца/года число повторений уже
-                          // не про один день, красить его по этим же
-                          // порогам было бы нечестно.
-                          personalPeriod === 'day'
-                            ? {color: getRepsIntensityColor(item.reps)}
-                            : null,
-                        ]}>
-                        {item.reps}
-                      </Text>
+                                           <Text style={styles.repsPillText}>{item.reps}</Text>
                     </View>
                   )}
                 />

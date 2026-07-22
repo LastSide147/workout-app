@@ -153,6 +153,16 @@ export function computeDayRepsByExercise(exercisesList) {
   return byExercise;
 }
 
+export async function recalculateDayRating(userId, dateKey, exerciseCoefficients) {
+  const entries = await getDayEntries(userId, dateKey);
+  const exercisesList = entries.map(item => ({
+    exercise: item.exercise,
+    reps: item.reps,
+  }));
+  const rating = computeDayRating(exercisesList, exerciseCoefficients);
+  const byExercise = computeDayRepsByExercise(exercisesList);
+  await saveDayRating(userId, dateKey, rating, byExercise);
+}
 // Сохраняет рейтинг дня И одновременно прибавляет разницу (не всё
 // число целиком!) к бакетам дня/недели/месяца/года — иначе при
 // повторном сохранении того же дня (например, добавили ещё одно

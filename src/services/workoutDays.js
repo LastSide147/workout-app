@@ -32,6 +32,22 @@ export async function getDayEntries(userId, dateKey) {
   }));
 }
 
+export function subscribeToDayEntries(userId, dateKey, onData) {
+  return entriesCollection(userId, dateKey).onSnapshot(
+    snapshot => {
+      const entries = snapshot.docs.map(doc => ({
+        exercise: doc.id,
+        reps: doc.data().reps,
+      }));
+      onData(entries);
+    },
+    error => {
+      console.error('Ошибка подписки на записи дня:', error);
+      onData([]);
+    },
+  );
+}
+
 // Сохраняет ОДНО упражнение сразу, как только пользователь подтвердил
 // его галочкой — отдельной кнопки "Сохранить тренировку" больше нет.
 // День помечается как "есть тренировка", статус (выходной/пропуск/
