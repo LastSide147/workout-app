@@ -76,8 +76,6 @@ function getStartKeyForPeriod(periodKey, referenceDate) {
 
 const todayKey = getDateKey(new Date());
 
-
-
 // Сегментированный контрол (как переключатель вкладок в iOS) — одна
 // скруглённая "дорожка" на всю ширину, сегменты делят её поровну
 // (flex: 1 у каждого), активный сегмент — светлая "таблетка" внутри.
@@ -134,7 +132,33 @@ function CenteredDropdownModal({visible, onClose, title, children}) {
   );
 }
 
-function CoefficientsModal({visible, onClose, exercises}) {
+// Модалка со справкой по коэффициентам. Одиночные упражнения — плоским
+// списком сверху. Папки — отдельным блоком снизу: заголовок папки +
+// её упражнения, всё это на ОДНОЙ общей карточке (folderCard), которая
+// растягивается вниз, пока папка развёрнута — так видно, что список
+// внутри неё действительно раскрылся, а не просто ничего не произошло.
+function CoefficientsModal({visible, onClose, exercises, folders, folderExercises}) {
+  const [expandedFolderId, setExpandedFolderId] = useState(null);
+
+  useEffect(() => {
+    if (visible) {
+      setExpandedFolderId(null);
+    }
+  }, [visible]);
+
+  const toggleFolder = folderId => {
+    setExpandedFolderId(current => (current === folderId ? null : folderId));
+  };
+
+  const renderExerciseRow = item => (
+    <View style={styles.personalRow} key={item.id}>
+      <Text style={styles.personalExerciseText} numberOfLines={1}>
+        {item.displayName}
+      </Text>
+      <Text style={styles.repsPillText}>{item.coefficient}</Text>
+    </View>
+  );
+
   return (
     <CenteredDropdownModal
       visible={visible}
@@ -145,23 +169,91 @@ function CoefficientsModal({visible, onClose, exercises}) {
         keyExtractor={item => item.id}
         testID="statistics-coefficients-list"
         style={styles.dropdownList}
+        contentContainerStyle={styles.dropdownListContent}
         showsVerticalScrollIndicator={false}
-              renderItem={({item}) => (
-                <View style={styles.personalRow}>
-                  <Text style={styles.personalExerciseText} numberOfLines={1}>
-                    {item.exercise}
-                  </Text>
-                  <Text style={styles.repsPillText}>{item.reps}</Text>
-                </View>
-              )}
+        renderItem={({item}) => renderExerciseRow(item)}
+        ListFooterComponent={
+          folders.length > 0 ? (
+            <View>
+              {folders.map(folder => {
+                const isExpanded = expandedFolderId === folder.id;
+                const folderItems = folderExercises[folder.id] || [];
+
+                return (
+                  <View key={folder.id} style={styles.folderCard}>
+                    <TouchableOpacity
+                      style={styles.filterFolderRow}
+                      onPress={() => toggleFolder(folder.id)}
+                      testID={`statistics-coefficients-folder-${folder.id}`}>
+                      <Text style={styles.filterFolderText}>{folder.name}</Text>
+                      <Text style={styles.exerciseFilterArrow}>
+                        {isExpanded ? '▾' : '▸'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {isExpanded
+                      ? folderItems.map(item => (
+                          <View style={styles.filterFolderChildRow} key={item.id}>
+                            <Text style={styles.personalExerciseText} numberOfLines={1}>
+                              {item.displayName}
+                            </Text>
+                            <Text style={styles.repsPillText}>{item.coefficient}</Text>
+                          </View>
+                        ))
+                      : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null
+        }
         ListEmptyComponent={<Text style={styles.emptyText}>Список упражнений пуст</Text>}
       />
     </CenteredDropdownModal>
   );
 }
 
-function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelect}) {
-  const options = [ALL_EXERCISES_OPTION, ...exerciseNames];
+// Модалка выбора упражнения для фильтра рейтинга. Та же логика папок
+// одной карточкой, что и в CoefficientsModal выше, только строки
+// кликабельны — тап выбирает упражнение и сразу закрывает модалку.
+function ExerciseFilterModal({visible, onClose, exercises, folders, folderExercises, selected, onSelect}) {
+  const [expandedFolderId, setExpandedFolderId] = useState(null);
+
+  useEffect(() => {
+    if (visible) {
+      setExpandedFolderId(null);
+    }
+  }, [visible]);
+
+  // Верхний уровень — "Все упражнения" плюс одиночные упражнения без
+  // папки. Упражнения из папок сюда НЕ попадают плоским списком —
+  // иначе список "Подтягивание с отягощением 2/4/6/8 кг..." рос бы
+  // бесконечно. Вместо этого ниже отдельным блоком идут папки —
+  // сворачиваемые, разворачивать нужно вручную.
+  const options = [ALL_EXERCISES_OPTION, ...exercises.map(item => item.name)];
+
+  const toggleFolder = folderId => {
+    setExpandedFolderId(current => (current === folderId ? null : folderId));
+  };
+
+  const renderOptionRow = (value, key) => {
+    const isActive = value === selected;
+    return (
+      <TouchableOpacity
+        key={key}
+        style={styles.modalOptionRow}
+        onPress={() => {
+          onSelect(value);
+          onClose();
+        }}
+        testID={`statistics-exercise-filter-option-${value}`}>
+        <Text style={[styles.modalOptionText, isActive ? styles.modalOptionTextActive : null]}>
+          {value}
+        </Text>
+        {isActive ? <Text style={styles.modalOptionCheck}>✓</Text> : null}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <CenteredDropdownModal visible={visible} onClose={onClose} title="Фильтр по упражнению">
@@ -170,28 +262,60 @@ function ExerciseFilterModal({visible, onClose, exerciseNames, selected, onSelec
         keyExtractor={item => item}
         testID="statistics-exercise-filter-list"
         style={styles.dropdownList}
+        contentContainerStyle={styles.dropdownListContent}
         showsVerticalScrollIndicator={false}
-        renderItem={({item}) => {
-          const isActive = item === selected;
-          return (
-            <TouchableOpacity
-              style={styles.modalOptionRow}
-              onPress={() => {
-                onSelect(item);
-                onClose();
-              }}
-              testID={`statistics-exercise-filter-option-${item}`}>
-              <Text
-                style={[
-                  styles.modalOptionText,
-                  isActive ? styles.modalOptionTextActive : null,
-                ]}>
-                {item}
-              </Text>
-              {isActive ? <Text style={styles.modalOptionCheck}>✓</Text> : null}
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({item}) => renderOptionRow(item, item)}
+        ListFooterComponent={
+          folders.length > 0 ? (
+            <View>
+              {folders.map(folder => {
+                const isExpanded = expandedFolderId === folder.id;
+                const folderItems = folderExercises[folder.id] || [];
+
+                return (
+                  <View key={folder.id} style={styles.folderCard}>
+                    <TouchableOpacity
+                      style={styles.filterFolderRow}
+                      onPress={() => toggleFolder(folder.id)}
+                      testID={`statistics-exercise-filter-folder-${folder.id}`}>
+                      <Text style={styles.filterFolderText}>{folder.name}</Text>
+                      <Text style={styles.exerciseFilterArrow}>
+                        {isExpanded ? '▾' : '▸'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {isExpanded
+                      ? folderItems.map(item => {
+                          const isActive = item.displayName === selected;
+                          return (
+                            <TouchableOpacity
+                              key={item.id}
+                              style={styles.filterFolderChildRow}
+                              onPress={() => {
+                                onSelect(item.displayName);
+                                onClose();
+                              }}
+                              testID={`statistics-exercise-filter-option-${item.displayName}`}>
+                              <Text
+                                style={[
+                                  styles.modalOptionText,
+                                  isActive ? styles.modalOptionTextActive : null,
+                                ]}>
+                                {item.displayName}
+                              </Text>
+                              {isActive ? (
+                                <Text style={styles.modalOptionCheck}>✓</Text>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })
+                      : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null
+        }
       />
     </CenteredDropdownModal>
   );
@@ -252,6 +376,7 @@ function LeaderboardModal({
         keyExtractor={item => item.userId}
         testID="statistics-full-leaderboard-list"
         style={styles.dropdownList}
+        contentContainerStyle={styles.dropdownListContent}
         showsVerticalScrollIndicator={false}
         renderItem={({item, index}) => (
           <LeaderboardRow
@@ -273,22 +398,25 @@ export default function StatisticsScreen({userId}) {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('day');
   const [leaderboardExercise, setLeaderboardExercise] = useState(ALL_EXERCISES_OPTION);
 
-  // exercises — намеренно берём тот срез хука, что содержит только
-  // ОДИНОЧНЫЕ упражнения верхнего уровня (без папок). В Статистике
-  // (и в личной разбивке "Мои упражнения", и в фильтре рейтинга, и в
-  // справке по коэффициентам) упражнения из папок мастера сознательно
-  // не показываются — просили только одиночные. На "Всего" это не
-  // влияет: общая сумма считается по всем записанным повторениям
-  // напрямую, независимо от того, что показано построчно.
-  const {exercises, loadingExercises} = useExercises();
-  const exerciseNames = exercises.map(item => item.name);
-    const totalsRequestIdRef = useRef(0);
+  // exercises — только одиночные упражнения верхнего уровня (без
+  // папок), allExercises — вообще всё плоским списком с полем
+  // displayName. Плоские списки (кнопки/заголовок фильтра) используют
+  // exercises, "Мои упражнения" и общий рейтинг — allExercises, чтобы
+  // упражнения из папок тоже учитывались.
+  const {exercises, allExercises, folders, folderExercises, loadingExercises} = useExercises();
 
+  // Для "Мои упражнения" нужны названия ВСЕХ упражнений, включая
+  // лежащие в папках (под их полным именем вида "Папка Название") —
+  // иначе то, что залогировано из папки, никогда не попадёт в личный
+  // список.
+  const exerciseNames = allExercises.map(item => item.displayName);
+
+  const totalsRequestIdRef = useRef(0);
 
   const [totals, setTotals] = useState({});
   const [overallTotal, setOverallTotal] = useState(0);
   const [loadingTotals, setLoadingTotals] = useState(true);
-    const [totalsPeriod, setTotalsPeriod] = useState(null);
+  const [totalsPeriod, setTotalsPeriod] = useState(null);
 
   const [leaderboard, setLeaderboard] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
@@ -345,7 +473,7 @@ export default function StatisticsScreen({userId}) {
         });
       });
 
- setTotals(newTotals);
+      setTotals(newTotals);
       setOverallTotal(newOverallTotal);
       setTotalsPeriod(personalPeriod);
     } catch (error) {
@@ -442,7 +570,19 @@ export default function StatisticsScreen({userId}) {
                       <Text style={styles.personalExerciseText} numberOfLines={1}>
                         {item.exercise}
                       </Text>
-                      <Text style={styles.repsPillText}>{item.reps}</Text>
+                      <Text
+                        style={[
+                          styles.repsPillText,
+                          // Градация цвета — только для периода "День":
+                          // для недели/месяца/года число повторений уже
+                          // не про один день, красить его по этим же
+                          // порогам было бы нечестно.
+                          personalPeriod === 'day'
+                            ? {color: getRepsIntensityColor(item.reps)}
+                            : null,
+                        ]}>
+                        {item.reps}
+                      </Text>
                     </View>
                   )}
                 />
@@ -454,11 +594,6 @@ export default function StatisticsScreen({userId}) {
               <Text
                 style={[
                   styles.totalValue,
-                  // Подсветка — только для периода "День": там "Всего"
-                  // и есть повторения ровно за один день, пороги
-                  // 100/300 применимы напрямую. Для недели/месяца/3
-                  // месяцев/года это уже не "день", а сумма за много
-                  // дней — там цвет не красим, остаётся обычный.
                   personalPeriod === 'day'
                     ? {color: getRepsIntensityColor(overallTotal)}
                     : null,
@@ -469,11 +604,8 @@ export default function StatisticsScreen({userId}) {
           </>
         )}
       </View>
-      {/* Блок 2: общий рейтинг всех пользователей. Переключатель периода
-          показывается только пока выбрано "Все упражнения" (рейтинг по
-          баллам). Кнопка выбора упражнения теперь — скруглённая пилюля,
-          как и переключатель периода (тот же стиль, что "элемент выбора
-          даты"). */}
+
+      {/* Блок 2: общий рейтинг всех пользователей. */}
       <View style={styles.sectionCard}>
         <View style={styles.leaderboardHeaderRow}>
           <TouchableOpacity
@@ -490,9 +622,7 @@ export default function StatisticsScreen({userId}) {
         </View>
 
         {isExerciseFilterActive ? (
-          <Text style={styles.leaderboardPeriodNote}>
-            Только для текущего дня
-          </Text>
+          <Text style={styles.leaderboardPeriodNote}>Только для текущего дня</Text>
         ) : (
           <PeriodSelector
             value={leaderboardPeriod}
@@ -543,12 +673,16 @@ export default function StatisticsScreen({userId}) {
         visible={coefficientsVisible}
         onClose={() => setCoefficientsVisible(false)}
         exercises={exercises}
+        folders={folders}
+        folderExercises={folderExercises}
       />
 
       <ExerciseFilterModal
         visible={exerciseFilterVisible}
         onClose={() => setExerciseFilterVisible(false)}
-        exerciseNames={exerciseNames}
+        exercises={exercises}
+        folders={folders}
+        folderExercises={folderExercises}
         selected={leaderboardExercise}
         onSelect={handleSelectLeaderboardExercise}
       />
@@ -641,11 +775,7 @@ const styles = StyleSheet.create({
   personalExerciseText: {...typography.bodyBold, color: colors.textPrimary, flexShrink: 1, marginRight: 12},
   repsPillText: {...typography.number, fontSize: 16, color: colors.primary},
 
-  // Каждая строка рейтинга — теперь отдельная карточка (фон recessed,
-  // скругление, отступ снизу между карточками), а не плотная строка с
-  // линией-разделителем. Текущий пользователь получает поверх этого
-  // ещё цветной фон и рамку (rowHighlighted).
- row: {
+  row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -675,9 +805,6 @@ const styles = StyleSheet.create({
   totalLabel: {...typography.sectionTitle, fontSize: 18, color: colors.textPrimary},
   totalValue: {...typography.number, fontSize: 18, color: colors.primary},
 
-  // Кнопка выбора упражнения — теперь такая же скруглённая "пилюля",
-  // как и переключатель периода (тот же фон/бордер, что у
-  // segmentedTrack), а не отдельный прямоугольный стиль.
   exerciseFilterButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -710,8 +837,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Крупнее скругление и тень — раньше карточка выглядела "плоско" и
-  // ощущалась недоделанной.
   dropdownCard: {
     width: '86%',
     maxHeight: '68%',
@@ -734,30 +859,18 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   dropdownTitle: {...typography.sectionTitle, fontSize: 16, color: colors.textPrimary},
-  // Отступы вокруг самого списка — раньше строки шли вплотную к краям
-  // карточки, из-за чего всё выглядело "слипшимся".
-  dropdownList: {flexGrow: 0, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4},
 
-  // Обёртка переключателя периода внутри модалки рейтинга — свой
-  // горизонтальный отступ, т.к. сам PeriodSelector не находится внутри
-  // dropdownList (он отдельный элемент над списком).
+  // style — только размер контейнера. paddingBottom здесь НЕ создаёт
+  // отступ у прокручиваемого контента — именно поэтому нужен отдельный
+  // contentContainerStyle: он и даёт настоящий отступ в конце списка
+  // при скролле (частая путаница с FlatList).
+  dropdownList: {flexGrow: 0},
+  dropdownListContent: {paddingHorizontal: 14, paddingTop: 12, paddingBottom: 24},
+
   modalPeriodWrapper: {paddingHorizontal: 14, paddingTop: 12},
 
   modalCloseIcon: {fontSize: 18, color: colors.textPrimary},
-  // Строки коэффициентов и фильтра — теперь тоже карточки (фон
-  // recessed, скругление, отступ снизу) вместо плотных строк с линией.
-  modalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.recessed,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 8,
-  },
-  modalExerciseName: {...typography.body, color: colors.textPrimary},
-  modalCoefficientValue: {...typography.number, color: colors.primary},
+
   modalOptionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -771,4 +884,34 @@ const styles = StyleSheet.create({
   modalOptionText: {...typography.body, color: colors.textPrimary},
   modalOptionTextActive: {color: colors.primary, fontWeight: 'bold'},
   modalOptionCheck: {fontSize: 16, color: colors.primary, fontWeight: 'bold'},
+
+  // Общий фон на всю папку целиком (заголовок + раскрытые упражнения)
+  // — растягивается вниз по числу показанных строк, поэтому раскрытие
+  // визуально сразу заметно, как один блок.
+  folderCard: {
+    backgroundColor: colors.recessed,
+    borderRadius: 12,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  filterFolderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  filterFolderText: {...typography.bodyBold, color: colors.textPrimary},
+  // Строка упражнения внутри развёрнутой папки — без своего фона (он
+  // общий, от folderCard), только тонкая линия сверху, чтобы отделить
+  // от заголовка папки и от соседних строк.
+  filterFolderChildRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
 });

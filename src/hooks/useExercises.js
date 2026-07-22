@@ -19,8 +19,32 @@ export default function useExercises() {
   }, []);
 
   return useMemo(() => {
-    const allExerciseDocs = rawItems.filter(item => item.type === 'exercise');
+    const allExerciseDocsRaw = rawItems.filter(item => item.type === 'exercise');
     const folderDocs = rawItems.filter(item => item.type === 'folder');
+
+    const folders = folderDocs
+      .slice()
+      .sort((a, b) => a.folderOrder - b.folderOrder);
+
+    const folderNameById = {};
+    folders.forEach(folder => {
+      folderNameById[folder.id] = folder.name;
+    });
+
+    // displayName — полное имя, под которым упражнение фигурирует
+    // ВЕЗДЕ вне экрана управления (список коэффициентов, выбор в
+    // тренировке, статистика, рейтинг): для упражнения внутри папки
+    // это "Название папки Название упражнения" (например, "Подтягивание
+    // с отягощением 8 килограмм"), для одиночного верхнего уровня —
+    // просто его name. Поле "name" в Firestore при этом НЕ меняется —
+    // мастер по-прежнему видит и редактирует в управлении упражнениями
+    // только короткое имя (например, "8 килограмм").
+    const allExerciseDocs = allExerciseDocsRaw.map(item => {
+      const displayName = item.folderId
+        ? `${folderNameById[item.folderId] || ''} ${item.name}`.trim()
+        : item.name;
+      return {...item, displayName};
+    });
 
     // Одиночные упражнения верхнего уровня — то, чем раньше был
     // единственный список "exercises". DayEditor, экран управления и
@@ -29,10 +53,6 @@ export default function useExercises() {
     const exercises = allExerciseDocs
       .filter(item => !item.folderId)
       .sort((a, b) => a.order - b.order);
-
-    const folders = folderDocs
-      .slice()
-      .sort((a, b) => a.folderOrder - b.folderOrder);
 
     // Упражнения каждой папки — отдельным списком, отсортированным
     // внутри своей папки независимо от других папок и от верхнего
@@ -46,13 +66,13 @@ export default function useExercises() {
 
     // Коэффициенты и названия для расчёта рейтинга и статистики
     // должны учитывать ВСЕ упражнения — и одиночные, и лежащие внутри
-    // папок, потому что рейтинг и суммы повторений считаются по имени
-    // упражнения независимо от того, где оно организационно лежит в
-    // каталоге.
-    const exerciseNames = allExerciseDocs.map(item => item.name);
+    // папок — и ключом теперь служит именно displayName, потому что
+    // это и есть тот идентификатор, под которым упражнение реально
+    // сохраняется при добавлении в тренировку (см. DayEditor).
+    const exerciseNames = allExerciseDocs.map(item => item.displayName);
     const exerciseCoefficients = {};
     allExerciseDocs.forEach(item => {
-      exerciseCoefficients[item.name] = item.coefficient;
+      exerciseCoefficients[item.displayName] = item.coefficient;
     });
 
     return {

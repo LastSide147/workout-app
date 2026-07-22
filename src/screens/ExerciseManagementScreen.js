@@ -7,8 +7,14 @@ import {
   FlatList,
   StyleSheet,
   Alert,
-  SafeAreaView,
 } from 'react-native';
+// SafeAreaView из 'react-native' даёт отступ под системную область
+// (время/батарея/вырез камеры) ТОЛЬКО на iOS — на Android он ничего
+// не делает, из-за этого кнопка "назад" вплотную прижималась к
+// статус-бару. Версия из 'react-native-safe-area-context' считает
+// реальный отступ на обеих платформах — её же использует
+// ScreenContainer.js для остальных экранов.
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import useExercises from '../hooks/useExercises';
 import {

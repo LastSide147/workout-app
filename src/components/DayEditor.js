@@ -117,7 +117,7 @@ function ExercisePickerModal({
                   {folders.map(folder => {
                     const isExpanded = expandedFolderId === folder.id;
                     const folderItems = (folderExercises[folder.id] || []).filter(
-                      item => !selectedNames.includes(item.name),
+                      item => !selectedNames.includes(item.displayName),
                     );
 
                     return (
@@ -147,9 +147,9 @@ function ExercisePickerModal({
                               <TouchableOpacity
                                 key={item.id}
                                 style={[styles.pickerRow, styles.pickerRowInFolder]}
-                                onPress={() => onPick(item.name)}
-                                testID={`day-editor-picker-option-${item.name}`}>
-                                <Text style={styles.pickerRowText}>{item.name}</Text>
+                                onPress={() => onPick(item.displayName)}
+                                testID={`day-editor-picker-option-${item.displayName}`}>
+                                <Text style={styles.pickerRowText}>{item.displayName}</Text>
                                 <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
                               </TouchableOpacity>
                             ))
@@ -185,8 +185,14 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
   const originalNamesRef = useRef([]);
 
-  const isDirtyRef = useRef(false);
-  useEffect(() => {
+  const ratingQueueRef = useRef(Promise.resolve());
+
+  const queueRatingWrite = task => {
+    ratingQueueRef.current = ratingQueueRef.current.catch(() => {}).then(task);
+    return ratingQueueRef.current;
+  };
+
+  const isDirtyRef = useRef(false);  useEffect(() => {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
@@ -299,7 +305,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       }));
       const rating = computeDayRating(exercisesList, exerciseCoefficients);
       const byExercise = computeDayRepsByExercise(exercisesList);
-      saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
+queueRatingWrite(() => saveDayRating(userId, dateKey, rating, byExercise)).catch(error =>
         console.error('Рейтинг дня синхронизируется позже:', error),
       );
 
@@ -333,7 +339,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
       );
 
       if (remainingNames.length === 0) {
-        deleteDayRating(userId, dateKey).catch(error =>
+        queueRatingWrite(() => deleteDayRating(userId, dateKey)).catch(error =>
           console.error('Удаление рейтинга дня отложено до сети:', error),
         );
       } else {
@@ -343,7 +349,7 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         }));
         const rating = computeDayRating(exercisesList, exerciseCoefficients);
         const byExercise = computeDayRepsByExercise(exercisesList);
-        saveDayRating(userId, dateKey, rating, byExercise).catch(error =>
+        queueRatingWrite(() => saveDayRating(userId, dateKey, rating, byExercise)).catch(error =>
           console.error('Рейтинг дня синхронизируется позже:', error),
         );
       }

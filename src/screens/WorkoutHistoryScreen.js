@@ -1,6 +1,7 @@
-import React, {useEffect, useState, useRef} from 'react';
+import React, {useCallback, useState, useEffect} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
+import {useFocusEffect} from '@react-navigation/native';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
 import {
   recalculateAllRatings,
@@ -78,8 +79,6 @@ export default function WorkoutHistoryScreen({userId}) {
   const [selectedDate, setSelectedDate] = useState(todayKey);
 
   const {exerciseCoefficients, loadingExercises} = useExercises();
-  const recalculatedRef = useRef(false);
-
   const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
 
   // userId приходит готовым пропом из App.js (см. пояснение в
@@ -90,29 +89,20 @@ export default function WorkoutHistoryScreen({userId}) {
     return () => unsubscribe && unsubscribe();
   }, [userId]);
 
-  useEffect(() => {
-    if (
-      userId &&
-      !loadingExercises &&
-      Object.keys(days).length > 0 &&
-      !recalculatedRef.current
-    ) {
-      recalculatedRef.current = true;
-      recalculateAllRatings(userId, days, exerciseCoefficients);
+  useFocusEffect(
+    useCallback(() => {
+      if (userId && !loadingExercises && Object.keys(days).length > 0) {
+        recalculateAllRatings(userId, days, exerciseCoefficients);
 
-      // Разовый (на пользователя, навсегда) бэкфилл бакетов рейтинга
-      // из уже накопленной истории — см. подробное пояснение в
-      // services/ratings.js. Работает независимо от recalculateAllRatings
-      // и сам себя защищает от повторного запуска флагом в профиле.
-      ensureBucketsBackfilled(userId, days, exerciseCoefficients);
-
-      // Разовая починка месячных бакетов после смены формата их ключа
-      // (см. подробности в services/ratings.js) — тоже сама себя
-      // защищает от повторного запуска и ничего не трогает у аккаунтов,
-      // которые уже прошли эту миграцию.
-      ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
-    }
-  }, [userId, days, loadingExercises, exerciseCoefficients]);
+        // Бэкфилл и миграция месячных бакетов сами защищены от
+        // повторного запуска флагом в профиле пользователя (см.
+        // services/ratings.js) — их можно безопасно вызывать при
+        // каждом заходе на экран, лишней работы они не сделают.
+        ensureBucketsBackfilled(userId, days, exerciseCoefficients);
+        ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
+      }
+    }, [userId, days, loadingExercises, exerciseCoefficients]),
+  );
 
   // markingType="custom" на Calendar ниже включает полностью ручное
   // управление стилем каждого дня через customStyles (container/text) —
