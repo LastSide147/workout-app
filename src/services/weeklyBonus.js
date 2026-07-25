@@ -1,7 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
-import {getWithOfflineFallback, saveWithOfflineFallback} from './offlineSync';
 import {addBonusToBatch} from './ratings';
-import {getDateKey, getStartOfWeekKey} from '../utils/date';
+import {getDateKey, getStartOfWeekKey, parseDateKey} from '../utils/date';
 
 export const WEEKLY_BONUS_POINTS = 200;
 
@@ -20,7 +19,9 @@ function weeklyBonusMarkerDoc(userId, weekStartKey) {
 // Понедельник..воскресенье текущей недели в виде массива ключей дат.
 function getCurrentWeekDateKeys() {
   const startKey = getStartOfWeekKey(new Date());
-  const start = new Date(startKey);
+  // parseDateKey — та же причина, что и в ratings.js: new Date(строка)
+  // разобрал бы "YYYY-MM-DD" как UTC-полночь.
+  const start = parseDateKey(startKey);
 
   const keys = [];
   for (let i = 0; i < 7; i += 1) {
@@ -59,38 +60,46 @@ export async function checkAndAwardWeeklyBonus(userId, days) {
   }
 
   const weekStartKey = weekDateKeys[0];
+  const markerDoc = weeklyBonusMarkerDoc(userId, weekStartKey);
 
-  const markerSnapshot = await getWithOfflineFallback(
-    weeklyBonusMarkerDoc(userId, weekStartKey),
-  );
-  if (markerSnapshot.exists) {
-    return {status: 'already_awarded', weekStartKey};
+  try {
+    const status = await firestore().runTransaction(async transaction => {
+      // transaction.get — обязательное требование транзакций: ничего,
+      // что читалось не через сам объект transaction, использовать в
+      // ней нельзя, иначе Firestore не сможет гарантировать атомарность.
+      const markerSnapshot = await transaction.get(markerDoc);
+
+      if (markerSnapshot.exists) {
+        return 'already_awarded';
+      }
+
+      transaction.set(markerDoc, {
+        weekStart: weekStartKey,
+        points: WEEKLY_BONUS_POINTS,
+        awardedAt: firestore.FieldValue.serverTimestamp(),
+      });
+
+      // addBonusToBatch внутри просто вызывает transaction.set(...) —
+      // ей всё равно, batch это или transaction, у обоих одинаковый
+      // метод .set().
+      addBonusToBatch(
+        transaction,
+        userId,
+        `${weekStartKey}-weekly-bonus`,
+        getDateKey(new Date()),
+        WEEKLY_BONUS_POINTS,
+      );
+
+      return 'awarded';
+    });
+
+    return {status, weekStartKey, points: WEEKLY_BONUS_POINTS};
+  } catch (error) {
+    // Транзакции Firestore не умеют работать полностью офлайн (в
+    // отличие от обычных .set()) — если сети совсем нет, попытка
+    // упадёт сюда. Это ок: хук useWeeklyBonus не запомнит неделю как
+    // проверенную и попробует снова при следующем изменении данных
+    // (например, когда сеть появится).
+    return {status: 'error', error, weekStartKey};
   }
-
-  const batch = firestore().batch();
-
-  batch.set(weeklyBonusMarkerDoc(userId, weekStartKey), {
-    weekStart: weekStartKey,
-    points: WEEKLY_BONUS_POINTS,
-    awardedAt: firestore.FieldValue.serverTimestamp(),
-  });
-
-  // Один и тот же batch — метка о начислении и сам бонус (плюс его
-  // прибавление в бакеты рейтинга) уходят в базу одной атомарной
-  // пачкой, как и раньше.
-  addBonusToBatch(
-    batch,
-    userId,
-    `${weekStartKey}-weekly-bonus`,
-    getDateKey(new Date()),
-    WEEKLY_BONUS_POINTS,
-  );
-
-  const result = await saveWithOfflineFallback(batch.commit());
-
-  if (result.error) {
-    return {status: 'error', error: result.error, weekStartKey};
-  }
-
-  return {status: 'awarded', points: WEEKLY_BONUS_POINTS, weekStartKey};
 }

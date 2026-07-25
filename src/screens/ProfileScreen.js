@@ -15,6 +15,7 @@ import ExerciseManagementScreen from './ExerciseManagementScreen';
 import {useUpdatesContext} from '../context/UpdatesContext';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
+import {rebuildAllBucketsFromHistory} from '../services/ratings';
 
 export default function ProfileScreen() {
   const user = getCurrentUser();
@@ -27,6 +28,26 @@ export default function ProfileScreen() {
       {text: 'Отмена', style: 'cancel'},
       {text: 'Выйти', style: 'destructive', onPress: logout},
     ]);
+  };
+
+  const [rebuilding, setRebuilding] = useState(false);
+
+  // ВРЕМЕННАЯ кнопка-починка. Пересчитывает бакеты рейтинга (день/
+  // неделя/месяц/год) заново из истории тренировок — исправляет
+  // расхождения, накопленные до того, как гонка в saveDayRating была
+  // закрыта транзакцией. Нажать один раз, убедиться, что цифры в
+  // "Статистике" стали верными, и после этого кнопку ниже (JSX-блок
+  // rebuildButton и её стили) можно целиком удалить — постоянно она
+  // не нужна.
+  const handleRebuildRatings = () => {
+    if (!user) {
+      return;
+    }
+    setRebuilding(true);
+    rebuildAllBucketsFromHistory(user.uid)
+      .then(() => Alert.alert('Готово', 'Бакеты рейтинга пересчитаны заново.'))
+      .catch(error => Alert.alert('Ошибка пересчёта', String(error)))
+      .finally(() => setRebuilding(false));
   };
 
   const handleApplyUpdate = () => {
@@ -64,6 +85,18 @@ export default function ProfileScreen() {
             <Text style={styles.manageButtonText}>Управление упражнениями</Text>
           </TouchableOpacity>
         ) : null}
+
+        {/* ВРЕМЕННО: удалить после того, как один раз запустите
+            пересчёт и проверите, что цифры в "Статистике" сошлись. */}
+        <TouchableOpacity
+          style={[styles.rebuildButton, rebuilding && styles.rebuildButtonDisabled]}
+          onPress={handleRebuildRatings}
+          disabled={rebuilding}
+          testID="profile-rebuild-ratings-button">
+          <Text style={styles.rebuildButtonText}>
+            {rebuilding ? 'Пересчёт...' : 'Пересчитать рейтинг (временно)'}
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.updatesSection}>
           <Text style={styles.updatesTitle}>Обновления</Text>
@@ -133,6 +166,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   manageButtonText: {...typography.button, fontSize: 15, color: colors.primary},
+
+  // ВРЕМЕННО: стили для кнопки пересчёта рейтинга — удалить вместе с
+  // самой кнопкой выше, когда починка будет не нужна.
+  rebuildButton: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  rebuildButtonDisabled: {opacity: 0.5},
+  rebuildButtonText: {...typography.button, fontSize: 15, color: colors.danger},
 
   updatesSection: {marginTop: 30},
   updatesTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},

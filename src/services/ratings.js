@@ -2,7 +2,7 @@ import firestore from '@react-native-firebase/firestore';
 import {getCurrentUser} from './firebase';
 import {getDayEntries} from './workoutDays';
 import {getWithOfflineFallback, saveWithOfflineFallback} from './offlineSync';
-import {getDateKey, getStartOfWeekKey, getStartOfMonthKey} from '../utils/date';
+import {getDateKey, getStartOfWeekKey, getStartOfMonthKey, parseDateKey} from '../utils/date';
 
 function ratingDayDoc(userId, dateKey) {
   return firestore()
@@ -65,7 +65,10 @@ function bucketUserDoc(periodKey, userId) {
 // Ключи бакетов (день/неделя/месяц/год), к которым относится
 // конкретная дата тренировки.
 function getBucketKeysForDate(dateKey) {
-  const date = new Date(dateKey);
+  // parseDateKey, а не new Date(dateKey) — обычный конструктор разбирает
+  // строку "YYYY-MM-DD" как UTC-полночь и может съехать на день назад в
+  // часовых поясах западнее UTC (см. подробности в utils/date.js).
+  const date = parseDateKey(dateKey);
   return {
     day: `day-${dateKey}`,
     week: `week-${getStartOfWeekKey(date)}`,
@@ -170,64 +173,64 @@ export async function recalculateDayRating(userId, dateKey, exerciseCoefficients
 // сначала читаем, что было сохранено раньше именно за этот день —
 // это ОДНО точечное чтение по конкретному id, а не скан коллекции.
 export async function saveDayRating(userId, dateKey, rating, byExercise) {
-  const previousSnapshot = await getWithOfflineFallback(ratingDayDoc(userId, dateKey));
-  const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
-  const previousRating = previous ? previous.rating || 0 : 0;
-  const previousByExercise = previous ? previous.byExercise || {} : {};
-
-  const ratingDelta = rating - previousRating;
-
-  const exerciseNames = new Set([
-    ...Object.keys(previousByExercise),
-    ...Object.keys(byExercise || {}),
-  ]);
-  const byExerciseDelta = {};
-  exerciseNames.forEach(name => {
-    const before = previousByExercise[name] || 0;
-    const after = (byExercise && byExercise[name]) || 0;
-    byExerciseDelta[name] = after - before;
-  });
-
   const nickname = computeNickname(userId);
-  const batch = firestore().batch();
+  const dayDoc = ratingDayDoc(userId, dateKey);
 
-  batch.set(ratingDayDoc(userId, dateKey), {
-    rating,
-    byExercise: byExercise || {},
-    date: dateKey,
-    updatedAt: firestore.FieldValue.serverTimestamp(),
+  await firestore().runTransaction(async transaction => {
+    const previousSnapshot = await transaction.get(dayDoc);
+    const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
+    const previousRating = previous ? previous.rating || 0 : 0;
+    const previousByExercise = previous ? previous.byExercise || {} : {};
+
+    const ratingDelta = rating - previousRating;
+
+    const exerciseNames = new Set([
+      ...Object.keys(previousByExercise),
+      ...Object.keys(byExercise || {}),
+    ]);
+    const byExerciseDelta = {};
+    exerciseNames.forEach(name => {
+      const before = previousByExercise[name] || 0;
+      const after = (byExercise && byExercise[name]) || 0;
+      byExerciseDelta[name] = after - before;
+    });
+
+    transaction.set(dayDoc, {
+      rating,
+      byExercise: byExercise || {},
+      date: dateKey,
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    });
+
+    applyBucketDeltas(transaction, userId, dateKey, nickname, ratingDelta, byExerciseDelta);
   });
-
-  applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExerciseDelta);
-
-  await batch.commit();
 }
 
 // Удаляет рейтинг дня и вычитает его из бакетов (дельта = 0 - то, что
 // было раньше). Если документа не было (день и так был пуст) — делать
 // нечего.
 export async function deleteDayRating(userId, dateKey) {
- const previousSnapshot = await getWithOfflineFallback(ratingDayDoc(userId, dateKey));
-  if (!previousSnapshot || !previousSnapshot.exists) {
-    return;
-  }
-
-  const previous = previousSnapshot.data() || {};
-  const previousRating = previous.rating || 0;
-  const previousByExercise = previous.byExercise || {};
-
-  const byExerciseDelta = {};
-  Object.keys(previousByExercise).forEach(name => {
-    byExerciseDelta[name] = -(previousByExercise[name] || 0);
-  });
-
   const nickname = computeNickname(userId);
-  const batch = firestore().batch();
+  const dayDoc = ratingDayDoc(userId, dateKey);
 
-  batch.delete(ratingDayDoc(userId, dateKey));
-  applyBucketDeltas(batch, userId, dateKey, nickname, -previousRating, byExerciseDelta);
+  await firestore().runTransaction(async transaction => {
+    const previousSnapshot = await transaction.get(dayDoc);
+    if (!previousSnapshot.exists) {
+      return;
+    }
 
-  await batch.commit();
+    const previous = previousSnapshot.data() || {};
+    const previousRating = previous.rating || 0;
+    const previousByExercise = previous.byExercise || {};
+
+    const byExerciseDelta = {};
+    Object.keys(previousByExercise).forEach(name => {
+      byExerciseDelta[name] = -(previousByExercise[name] || 0);
+    });
+
+    transaction.delete(dayDoc);
+    applyBucketDeltas(transaction, userId, dateKey, nickname, -previousRating, byExerciseDelta);
+  });
 }
 
 export async function upsertProfileNickname(userId) {
@@ -417,7 +420,7 @@ export async function ensureBucketsBackfilled(userId, days, exerciseCoefficients
     return;
   }
 
-  await Promise.all(
+await Promise.all(
     dateKeysToBackfill.map(async dateKey => {
       try {
         const entries = await getDayEntries(userId, dateKey);
@@ -428,17 +431,32 @@ export async function ensureBucketsBackfilled(userId, days, exerciseCoefficients
         const rating = computeDayRating(exercisesList, exerciseCoefficients);
         const byExercise = computeDayRepsByExercise(exercisesList);
 
-        const batch = firestore().batch();
-        applyBucketDeltas(batch, userId, dateKey, nickname, rating, byExercise);
-        // Отметка "этот день досчитан" — в ТОМ ЖЕ batch, что и сами
-        // бакеты: если запись не пройдёт, не пройдёт целиком, и день
-        // корректно попробуется снова в следующий раз.
-        batch.set(
-          profileDoc(userId),
-          {backfilledDays: {[dateKey]: true}},
-          {merge: true},
-        );
-        await batch.commit();
+        // Раньше "уже досчитан?" проверялось ОДИН раз в начале всей
+        // функции (см. backfilledDays выше), а запись шла отдельно
+        // по каждому дню. Если это же самое запускалось почти
+        // одновременно на втором устройстве с тем же аккаунтом
+        // (например, эмулятор + телефон), оба успевали прочитать
+        // "день ещё не досчитан" и оба прибавляли рейтинг этого дня
+        // в бакеты — день задваивался НАВСЕГДА. Транзакция читает
+        // САМОЕ СВЕЖЕЕ состояние флага прямо перед записью и, если
+        // кто-то другой уже успел досчитать именно этот день, просто
+        // ничего не делает.
+        await firestore().runTransaction(async transaction => {
+          const freshProfileSnapshot = await transaction.get(profileDoc(userId));
+          const freshBackfilledDays =
+            (freshProfileSnapshot.exists && freshProfileSnapshot.data().backfilledDays) || {};
+
+          if (freshBackfilledDays[dateKey]) {
+            return;
+          }
+
+          applyBucketDeltas(transaction, userId, dateKey, nickname, rating, byExercise);
+          transaction.set(
+            profileDoc(userId),
+            {backfilledDays: {[dateKey]: true}},
+            {merge: true},
+          );
+        });
       } catch (error) {
         console.error(`Не удалось восстановить бакеты рейтинга за ${dateKey}:`, error);
       }
@@ -447,9 +465,35 @@ export async function ensureBucketsBackfilled(userId, days, exerciseCoefficients
 }
 
 export async function ensureMonthBucketsMigrated(userId, days, exerciseCoefficients) {
-  const profileSnapshot = await getWithOfflineFallback(profileDoc(userId));
-  const profileData = profileSnapshot.exists ? profileSnapshot.data() : {};
-  if (profileData.monthBucketsMigratedAt) {
+  // Раньше здесь читался флаг monthBucketsMigratedAt, и если его не
+  // было — функция сразу начинала долгий перенос ВСЕЙ истории, а сам
+  // флаг проставлялся только в конце. У этой миграции флаг один на
+  // весь аккаунт (не по дням, как в ensureBucketsBackfilled), поэтому
+  // гонка здесь самая опасная: если два устройства с одним аккаунтом
+  // (телефон + эмулятор) почти одновременно видят "флага ещё нет",
+  // ОБА пройдут по ВСЕЙ истории и удвоят рейтинг каждого дня во всех
+  // месячных бакетах сразу.
+  //
+  // Поэтому сначала атомарно "застолбим" перенос отдельной меткой
+  // monthBucketsMigrationClaimedAt через транзакцию — она гарантирует,
+  // что только ОДНО устройство пройдёт дальше и начнёт считать.
+  const claimed = await firestore().runTransaction(async transaction => {
+    const snapshot = await transaction.get(profileDoc(userId));
+    const data = snapshot.exists ? snapshot.data() : {};
+
+    if (data.monthBucketsMigratedAt || data.monthBucketsMigrationClaimedAt) {
+      return false;
+    }
+
+    transaction.set(
+      profileDoc(userId),
+      {monthBucketsMigrationClaimedAt: firestore.FieldValue.serverTimestamp()},
+      {merge: true},
+    );
+    return true;
+  });
+
+  if (!claimed) {
     return;
   }
 
@@ -469,7 +513,7 @@ export async function ensureMonthBucketsMigrated(userId, days, exerciseCoefficie
         const rating = computeDayRating(exercisesList, exerciseCoefficients);
         const byExercise = computeDayRepsByExercise(exercisesList);
 
-        const monthPeriodKey = `month-${getStartOfMonthKey(new Date(dateKey))}`;
+        const monthPeriodKey = `month-${getStartOfMonthKey(parseDateKey(dateKey))}`;
         const update = {
           nickname,
           updatedAt: firestore.FieldValue.serverTimestamp(),
@@ -499,3 +543,4 @@ export async function ensureMonthBucketsMigrated(userId, days, exerciseCoefficie
     console.error('Не удалось сохранить флаг миграции месячных бакетов:', error);
   }
 }
+

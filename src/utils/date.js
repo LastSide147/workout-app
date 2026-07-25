@@ -1,5 +1,31 @@
+// Строит ключ даты вида "YYYY-MM-DD" из объекта Date — по ЛОКАЛЬНОМУ
+// времени пользователя, а не по UTC. Раньше здесь стоял
+// date.toISOString(), который переводит момент времени в UTC перед
+// тем, как отрезать дату. Из-за этого для пользователей восточнее
+// Гринвича (Москва и похожие пояса) первые ~3 часа суток по местному
+// времени ISO-строка ещё показывала UTC-время предыдущих суток — и
+// такой ключ получался "вчерашним", хотя по часам пользователя уже
+// наступил новый день. Тренировка в это время уходила не в тот день
+// и "терялась" в статистике. Теперь ключ строится из локальных
+// getFullYear/getMonth/getDate — так же, как пользователь видит дату
+// на экране телефона.
 export function getDateKey(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Обратная операция — превращает ключ "YYYY-MM-DD" в объект Date,
+// тоже по местной полуночи. Простое new Date("2026-07-25") для этого
+// НЕ годится: JS разбирает дату-без-времени как UTC-полночь, и в
+// часовых поясах западнее UTC при обратном переводе в локальное время
+// дата "съезжает" на день назад. Разбираем компоненты вручную и
+// собираем дату через new Date(year, monthIndex, day) — конструктор с
+// отдельными числами всегда работает в локальном времени.
+export function parseDateKey(dateKey) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
 
 export function formatDateDisplay(dateKey) {
@@ -35,7 +61,7 @@ export function getStartOfMonthKey(date) {
 export function isWithinCurrentWeek(dateKey) {
   const startKey = getStartOfWeekKey(new Date());
 
-  const start = new Date(startKey);
+  const start = parseDateKey(startKey);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   const endKey = getDateKey(end);

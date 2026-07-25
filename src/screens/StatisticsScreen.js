@@ -37,13 +37,14 @@ const LEADERBOARD_PREVIEW_LIMIT = 15;
 // в массиве = место в рейтинге минус 1 (0 → первое место и т.д.).
 const RANK_COLORS = [colors.gold, colors.silver, colors.bronze];
 
-function toDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
+// Раньше здесь была своя копия toDateKey (local-time), а параллельно
+// в utils/date.js жила другая функция getDateKey на UTC — то есть на
+// один и тот же день в приложении было два способа получить ключ, и
+// они не всегда совпадали. Теперь getDateKey в utils/date.js тоже
+// считает по локальному времени, так что своя копия больше не нужна —
+// используем общую функцию (см. импорт вверху файла), дублирования
+// логики и расхождений между экранами больше нет.
+//
 // Нужна только для личного блока "Мои упражнения" — у него свои
 // данные, читаются напрямую по дням пользователя, без обращения к
 // бакетам рейтинга.
@@ -52,29 +53,27 @@ function getStartKeyForPeriod(periodKey, referenceDate) {
 
   switch (periodKey) {
     case 'day':
-      return toDateKey(date);
+      return getDateKey(date);
     case 'week': {
       const dayOfWeek = date.getDay();
       const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       const monday = new Date(date);
       monday.setDate(date.getDate() - diffToMonday);
-      return toDateKey(monday);
+      return getDateKey(monday);
     }
     case 'month': {
-      return toDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+      return getDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
     }
     case '3months': {
-      return toDateKey(new Date(date.getFullYear(), date.getMonth() - 2, 1));
+      return getDateKey(new Date(date.getFullYear(), date.getMonth() - 2, 1));
     }
     case 'year': {
-      return toDateKey(new Date(date.getFullYear(), 0, 1));
+      return getDateKey(new Date(date.getFullYear(), 0, 1));
     }
     default:
-      return toDateKey(date);
+      return getDateKey(date);
   }
 }
-
-const todayKey = getDateKey(new Date());
 
 // Сегментированный контрол (как переключатель вкладок в iOS) — одна
 // скруглённая "дорожка" на всю ширину, сегменты делят её поровну
@@ -394,6 +393,26 @@ function LeaderboardModal({
 export default function StatisticsScreen({userId}) {
   const [days, setDays] = useState({});
 
+  // Раньше "сегодня" здесь было константой модуля — вычислялась ОДИН
+  // раз при первой загрузке экрана в приложении и больше никогда не
+  // обновлялась. Если телефон не выключать (а обычно так и есть —
+  // приложение просто уходит в фон), то после полуночи это значение
+  // оставалось вчерашним, а personalStartKey ниже — настоящим
+  // сегодняшним днём (он пересчитывается на каждый рендер). В
+  // результате диапазон "с сегодня по вчера" получался пустым, и
+  // блок "Мои упражнения" показывал 0, хотя тренировка в этот день
+  // была — именно это и было на скриншоте. Теперь дата хранится в
+  // состоянии и обновляется каждый раз, когда экран снова попадает в
+  // фокус (открыли вкладку "Статистика"), поэтому "сегодня" никогда
+  // не протухает дольше, чем до следующего захода на экран.
+  const [todayKey, setTodayKey] = useState(() => getDateKey(new Date()));
+
+  useFocusEffect(
+    useCallback(() => {
+      setTodayKey(getDateKey(new Date()));
+    }, []),
+  );
+
   const [personalPeriod, setPersonalPeriod] = useState('week');
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('day');
   const [leaderboardExercise, setLeaderboardExercise] = useState(ALL_EXERCISES_OPTION);
@@ -486,7 +505,7 @@ export default function StatisticsScreen({userId}) {
         setLoadingTotals(false);
       }
     }
-  }, [userId, days, personalStartKey, personalPeriod]);
+  }, [userId, days, personalStartKey, personalPeriod, todayKey]);
 
   // Ограничение по периоду касается ТОЛЬКО просмотра конкретного
   // упражнения (выбор из выпадающего списка) — там доступен только

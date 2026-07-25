@@ -21,7 +21,7 @@
     },
     "package": "com.workoutapp",
     "googleServicesFile": "./google-services.json",
-        "softwareKeyboardLayoutMode": "resize"
+    "softwareKeyboardLayoutMode": "resize"
 
 
   },

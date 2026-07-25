@@ -35,8 +35,6 @@ LocaleConfig.locales['ru'] = {
 };
 LocaleConfig.defaultLocale = 'ru';
 
-const todayKey = getDateKey(new Date());
-
 // Размер кружка-индикатора обычного дня и сегодняшнего — сегодняшний
 // заметно крупнее, чтобы сразу бросался в глаза в календаре, а не
 // терялся среди обычных цветных отметок.
@@ -76,7 +74,21 @@ function buildDayCustomStyle({color, isToday, isSelected}) {
 
 export default function WorkoutHistoryScreen({userId}) {
   const [days, setDays] = useState({});
-  const [selectedDate, setSelectedDate] = useState(todayKey);
+
+  // Та же проблема, что была в StatisticsScreen.js и WorkoutLogScreen.js:
+  // todayKey раньше был константой модуля и не обновлялся, пока
+  // приложение не перезапустят полностью. Из-за этого после полуночи
+  // календарь мог продолжать подсвечивать вчерашний день как
+  // "сегодня" крупным кружком. Теперь значение лежит в состоянии и
+  // обновляется при каждом возврате на экран "История".
+  const [todayKey, setTodayKey] = useState(() => getDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => getDateKey(new Date()));
+
+  useFocusEffect(
+    useCallback(() => {
+      setTodayKey(getDateKey(new Date()));
+    }, []),
+  );
 
   const {exerciseCoefficients, loadingExercises} = useExercises();
   const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
