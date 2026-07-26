@@ -125,3 +125,41 @@ export async function clearDay(userId, dateKey, previousExerciseNames = []) {
 
   return batch.commit();
 }
+
+export async function autoFillMissedDays(userId, days, getDateKey, parseDateKey) {
+  const dateKeys = Object.keys(days);
+  if (dateKeys.length === 0) {
+    return;
+  }
+
+  const earliestKey = dateKeys.reduce((min, key) => (key < min ? key : min), dateKeys[0]);
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = getDateKey(yesterday);
+
+  if (earliestKey > yesterdayKey) {
+    return;
+  }
+
+  const missedKeys = [];
+  const cursor = parseDateKey(earliestKey);
+
+  while (getDateKey(cursor) <= yesterdayKey) {
+    const key = getDateKey(cursor);
+    const dayData = days[key];
+    const isEmpty = !dayData || (!dayData.hasExercises && !dayData.status);
+    if (isEmpty) {
+      missedKeys.push(key);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  await Promise.all(
+    missedKeys.map(dateKey =>
+      setStatusForDate(userId, dateKey, 'skipped', []).catch(error =>
+        console.error(`Не удалось автоматически отметить пропуск за ${dateKey}:`, error),
+      ),
+    ),
+  );
+}

@@ -3,11 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DISMISSED_UPDATE_KEY = 'dismissedUpdateId';
 
-// Проверяет сервер EAS на наличие новой публикации (eas update) и,
-// если она есть, сразу скачивает бандл в фоне — но НЕ применяет его.
-// Применение (перезапуск приложения) происходит только когда
-// пользователь сам нажмёт кнопку в Профиле.
-export async function checkAndDownloadUpdate() {
+// ТОЛЬКО проверяет сервер EAS на наличие новой публикации — ничего не
+// скачивает. Раньше здесь же сразу вызывался fetchUpdateAsync() при
+// каждом открытии приложения "про запас" — а сам факт СКАЧИВАНИЯ
+// обновления в expo-updates автоматически делает его тем бандлом,
+// который запустится на СЛЕДУЮЩИЙ холодный старт, даже если
+// пользователь ни разу не нажал кнопку "Обновить". Именно поэтому
+// обновление применялось "само" при закрытии и повторном открытии
+// приложения. Теперь скачивание вынесено в downloadAndApplyUpdate
+// ниже и происходит СТРОГО в момент нажатия кнопки пользователем.
+export async function checkForUpdate() {
   // В Expo Go и dev-сборках (Metro) система обновлений выключена —
   // это не ошибка, просто проверять нечего.
   if (!Updates.isEnabled) {
@@ -20,11 +25,8 @@ export async function checkAndDownloadUpdate() {
       return {available: false, updateId: null};
     }
 
-    const fetchResult = await Updates.fetchUpdateAsync();
     const updateId =
-      fetchResult.manifest && fetchResult.manifest.id
-        ? fetchResult.manifest.id
-        : null;
+      check.manifest && check.manifest.id ? check.manifest.id : null;
     return {available: true, updateId};
   } catch (error) {
     console.error('Ошибка проверки обновления:', error);
@@ -32,8 +34,8 @@ export async function checkAndDownloadUpdate() {
   }
 }
 
-// Запоминаем, что пользователь закрыл плашку для конкретного
-// обновления (по его id) — чтобы при следующих входах плашка не
+// Запоминаем, что пользователь закрыл окно/иконку для конкретного
+// обновления (по его id) — чтобы при следующих входах модалка не
 // показывалась повторно для ТОГО ЖЕ обновления.
 export async function dismissUpdateBanner(updateId) {
   if (!updateId) {
@@ -59,7 +61,10 @@ export async function wasUpdateDismissed(updateId) {
   }
 }
 
-// Применяет уже скачанное обновление — приложение перезапустится.
-export async function applyDownloadedUpdate() {
+// Скачивает обновление и СРАЗУ ЖЕ применяет его (перезапуск на новый
+// бандл). Вызывается ТОЛЬКО из обработчика кнопки "Обновить" — строго
+// по выбору пользователя, ничего заранее в фоне не скачивается.
+export async function downloadAndApplyUpdate() {
+  await Updates.fetchUpdateAsync();
   await Updates.reloadAsync();
 }

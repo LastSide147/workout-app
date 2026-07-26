@@ -84,12 +84,6 @@ function applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExer
   const bucketKeys = getBucketKeysForDate(dateKey);
 
   Object.values(bucketKeys).forEach(periodKey => {
-    // Собираем вложенный объект byExercise явно (а не через строку с
-    // точкой вида 'byExercise.Название') — так set({merge:true})
-    // гарантированно мёржит его как настоящую вложенную карту
-    // byExercise: {...}, а не создаёт отдельное плоское поле с точкой
-    // в названии. Именно из-за строкового ключа с точкой поле
-    // byExercise раньше не появлялось в документе как надо.
     const byExerciseUpdate = {};
     Object.keys(byExerciseDelta).forEach(exercise => {
       if (byExerciseDelta[exercise]) {
@@ -101,8 +95,24 @@ function applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExer
       nickname,
       updatedAt: firestore.FieldValue.serverTimestamp(),
       rating: firestore.FieldValue.increment(ratingDelta),
-      byExercise: byExerciseUpdate,
     };
+
+    // ВАЖНО: поле byExercise добавляем в update, ТОЛЬКО если есть,
+    // что реально прибавить. set(..., {merge: true}) мёржит поле
+    // целиком, если оно присутствует в объекте — вложенный объект как
+    // значение поля Firestore заменяет полностью, а не сливает по
+    // ключам внутри (в отличие от строки с точкой вида
+    // 'byExercise.Название', которую мы сознательно не используем —
+    // см. предыдущий комментарий в истории правок). Раньше сюда
+    // всегда клали byExercise: {} (пустой объект), если в этот раз ни
+    // одно упражнение не изменилось (например, при недельном бонусе
+    // или при повторном пересчёте без изменений) — и эта пустышка
+    // СТИРАЛА уже накопленную карту по упражнениям целиком, обнуляя
+    // её насовсем. Рейтинг (простое число) от этого не страдал —
+    // increment(0) для числа безобиден.
+    if (Object.keys(byExerciseUpdate).length > 0) {
+      update.byExercise = byExerciseUpdate;
+    }
 
     batch.set(bucketUserDoc(periodKey, userId), update, {merge: true});
   });
@@ -195,7 +205,7 @@ export async function saveDayRating(userId, dateKey, rating, byExercise) {
       byExerciseDelta[name] = after - before;
     });
 
-    transaction.set(dayDoc, {
+transaction.set(dayDoc, {
       rating,
       byExercise: byExercise || {},
       date: dateKey,
@@ -203,6 +213,19 @@ export async function saveDayRating(userId, dateKey, rating, byExercise) {
     });
 
     applyBucketDeltas(transaction, userId, dateKey, nickname, ratingDelta, byExerciseDelta);
+
+    // Ставим ту же метку, которой пользуется одноразовый бэкфилл
+    // (ensureBucketsBackfilled) — "этот день уже правильно учтён в
+    // бакетах". Без этого КАЖДЫЙ новый день сначала корректно попадал
+    // в бакет здесь, а при первом же открытии "Истории" бэкфилл видел
+    // отсутствие метки, считал день "старым и ещё не учтённым" и
+    // прибавлял его рейтинг в бакет ВТОРОЙ РАЗ — отсюда и было ровно
+    // двукратное завышение (33 → 66 и все похожие числа раньше).
+    transaction.set(
+      profileDoc(userId),
+      {backfilledDays: {[dateKey]: true}},
+      {merge: true},
+    );
   });
 }
 
@@ -228,8 +251,16 @@ export async function deleteDayRating(userId, dateKey) {
       byExerciseDelta[name] = -(previousByExercise[name] || 0);
     });
 
-    transaction.delete(dayDoc);
+transaction.delete(dayDoc);
     applyBucketDeltas(transaction, userId, dateKey, nickname, -previousRating, byExerciseDelta);
+
+    // Та же метка, что и в saveDayRating выше — день удалён/обнулён
+    // живым путём, бэкфиллу второй раз пересчитывать его не нужно.
+    transaction.set(
+      profileDoc(userId),
+      {backfilledDays: {[dateKey]: true}},
+      {merge: true},
+    );
   });
 }
 
@@ -541,6 +572,76 @@ export async function ensureMonthBucketsMigrated(userId, days, exerciseCoefficie
     );
   } catch (error) {
     console.error('Не удалось сохранить флаг миграции месячных бакетов:', error);
+  }
+}
+
+export async function rebuildAllBucketsFromHistory(userId) {
+  const nickname = computeNickname(userId);
+
+  const daysSnapshot = await firestore()
+    .collection('ratings')
+    .doc(userId)
+    .collection('days')
+    .get();
+
+  const totalsByPeriod = {};
+
+  const todayBucketKeys = getBucketKeysForDate(getDateKey(new Date()));
+  Object.values(todayBucketKeys).forEach(periodKey => {
+    totalsByPeriod[periodKey] = {rating: 0, byExercise: {}};
+  });
+
+  const addToPeriod = (periodKey, rating, byExercise) => {
+    if (!totalsByPeriod[periodKey]) {
+      totalsByPeriod[periodKey] = {rating: 0, byExercise: {}};
+    }
+    totalsByPeriod[periodKey].rating += rating;
+    Object.keys(byExercise || {}).forEach(name => {
+      totalsByPeriod[periodKey].byExercise[name] =
+        (totalsByPeriod[periodKey].byExercise[name] || 0) + byExercise[name];
+    });
+  };
+
+  daysSnapshot.docs.forEach(doc => {
+    const data = doc.data();
+    const dateKey = data.date || doc.id;
+    const rating = data.rating || 0;
+    const byExercise = data.byExercise || {};
+
+    const bucketKeys = getBucketKeysForDate(dateKey);
+    Object.values(bucketKeys).forEach(periodKey => {
+      addToPeriod(periodKey, rating, byExercise);
+    });
+  });
+
+  const batches = [];
+  let currentBatch = firestore().batch();
+  let opsInCurrentBatch = 0;
+
+  const queueWrite = (docRef, data) => {
+    if (opsInCurrentBatch >= 450) {
+      batches.push(currentBatch);
+      currentBatch = firestore().batch();
+      opsInCurrentBatch = 0;
+    }
+    currentBatch.set(docRef, data);
+    opsInCurrentBatch += 1;
+  };
+
+  Object.keys(totalsByPeriod).forEach(periodKey => {
+    const {rating, byExercise} = totalsByPeriod[periodKey];
+    queueWrite(bucketUserDoc(periodKey, userId), {
+      nickname,
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+      rating,
+      byExercise,
+    });
+  });
+
+  batches.push(currentBatch);
+
+  for (const batch of batches) {
+    await batch.commit();
   }
 }
 

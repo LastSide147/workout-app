@@ -5,7 +5,7 @@ import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
 import {UpdatesProvider} from './src/context/UpdatesContext';
-import UpdateBanner from './src/components/UpdateBanner';
+import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import CustomTabBar from './src/components/CustomTabBar';
 import AuthScreen from './src/screens/AuthScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -79,7 +79,7 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer theme={navigationTheme}>
           <StatusBar barStyle="light-content" />
-          <UpdateBanner />
+          <UpdateAvailableModal />
           <Tab.Navigator
             screenOptions={{
               headerShown: false,

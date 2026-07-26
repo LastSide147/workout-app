@@ -2,14 +2,14 @@ import React, {useCallback, useState, useEffect} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {useFocusEffect} from '@react-navigation/native';
-import {subscribeToWorkoutDays} from '../services/workoutDays';
+import {subscribeToWorkoutDays, autoFillMissedDays} from '../services/workoutDays';
 import {
   recalculateAllRatings,
   ensureBucketsBackfilled,
   ensureMonthBucketsMigrated,
 } from '../services/ratings';
 import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
-import {getDateKey} from '../utils/date';
+import {getDateKey, parseDateKey} from '../utils/date';
 import DayEditor from '../components/DayEditor';
 import ScreenContainer from '../components/ScreenContainer';
 import WeeklyBonusModal from '../components/WeeklyBonusModal';
@@ -17,6 +17,7 @@ import useExercises from '../hooks/useExercises';
 import useWeeklyBonus from '../hooks/useWeeklyBonus';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
+import UpdateAvailableIcon from '../components/UpdateAvailableIcon';
 
 LocaleConfig.locales['ru'] = {
   monthNames: [
@@ -112,6 +113,12 @@ export default function WorkoutHistoryScreen({userId}) {
         // каждом заходе на экран, лишней работы они не сделают.
         ensureBucketsBackfilled(userId, days, exerciseCoefficients);
         ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
+
+        // Дни, которые уже закончились и остались совсем пустыми (ни
+        // тренировки, ни статуса) — автоматически помечаем "Пропустил".
+        autoFillMissedDays(userId, days, getDateKey, parseDateKey).catch(error =>
+          console.error('Не удалось автоматически отметить пропущенные дни:', error),
+        );
       }
     }, [userId, days, loadingExercises, exerciseCoefficients]),
   );
@@ -151,8 +158,10 @@ export default function WorkoutHistoryScreen({userId}) {
   return (
     <>
       <ScreenContainer>
-        <Text style={styles.title}>История</Text>
-
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>История</Text>
+          <UpdateAvailableIcon />
+        </View>
         {/* Календарь — в отдельной скруглённой карточке, как остальные
             функциональные блоки в приложении, а не просто на голом фоне */}
         <View style={styles.calendarCard}>
@@ -211,8 +220,13 @@ function LegendItem({color, label}) {
 }
 
 const styles = StyleSheet.create({
-  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
-  calendarCard: {
+titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {...typography.screenTitle, color: colors.textPrimary},  calendarCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 8,

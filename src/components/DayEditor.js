@@ -8,9 +8,11 @@ import {
   Alert,
   Modal,
   FlatList,
+  BackHandler,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {Ionicons} from '@expo/vector-icons';
+import UpdateAvailableIcon from './UpdateAvailableIcon';
 import useExercises from '../hooks/useExercises';
 import useSelectedExercises from '../hooks/useSelectedExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
@@ -162,6 +164,107 @@ function ExercisePickerModal({
           />
         </TouchableOpacity>
       </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// Модалка ввода повторений — по центру экрана, не зависит от
+// клавиатуры (не перекрывается ею в любом случае). Закрытие по
+// свайпу/кнопке "назад" — через BackHandler (низкоуровневое системное
+// событие), а не через отслеживание скрытия клавиатуры: последнее
+// оказалось ненадёжным и иногда закрывало модалку раньше, чем
+// успевало сработать нажатие "Подтвердить".
+function EditRepsModal({
+  visible,
+  exercise,
+  repsInput,
+  onChangeRepsInput,
+  onConfirm,
+  onClose,
+  hasExistingReps,
+  onDeleteInput,
+}) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [visible, onClose]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      onShow={() => setTimeout(() => inputRef.current && inputRef.current.focus(), 50)}>
+      <View style={styles.editModalOverlay}>
+        <TouchableOpacity style={styles.editModalTouchArea} activeOpacity={1} onPress={onClose}>
+          <TouchableOpacity activeOpacity={1} style={styles.editModalCard}>
+            <Text style={styles.editModalTitle} numberOfLines={1}>
+              {exercise}
+            </Text>
+
+            <View style={styles.inlineEditRow}>
+              <TextInput
+                ref={inputRef}
+                style={styles.inlineInput}
+                placeholder="Полное количество повторений"
+                placeholderTextColor={colors.textPlaceholder}
+                keyboardType="numeric"
+                value={repsInput}
+                onChangeText={onChangeRepsInput}
+                maxLength={4}
+                returnKeyType="done"
+                onSubmitEditing={onConfirm}
+              />
+            </View>
+
+            {/* Нижняя строка модалки: слева ссылка "Удалить ввод" (если
+                в это упражнение уже что-то введено), справа — кнопки
+                "Отмена"/"Сохранить". Пустой View слева, когда ссылки
+                нет, нужен, чтобы justifyContent: 'space-between' всё
+                равно прижимал кнопки к правому краю. */}
+           <View style={styles.editModalActionsRow}>
+              {hasExistingReps ? (
+                <TouchableOpacity
+                  style={styles.clearRepsLink}
+                  onPressIn={onDeleteInput}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  testID="day-editor-clear-reps-modal">
+                  <Ionicons name="trash-outline" size={14} color={colors.danger} />
+                  <Text style={styles.clearRepsLinkText}>Удалить ввод</Text>
+                </TouchableOpacity>
+              ) : (
+                <View />
+              )}
+
+              <View style={styles.editModalButtonsGroup}>
+                <TouchableOpacity
+                  style={styles.cancelModalButton}
+                  onPressIn={onClose}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  testID="day-editor-cancel-modal">
+                  <Text style={styles.cancelModalButtonText}>Отмена</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.saveModalButton}
+                  onPressIn={onConfirm}
+                  testID="day-editor-save-modal">
+                  <Text style={styles.saveModalButtonText}>Сохранить</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </View>
     </Modal>
   );
 }
@@ -616,44 +719,6 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
                 ) : null}
               </View>
             </View>
-
-            {isSelected ? (
-              <View>
-                <View style={styles.inlineEditRow}>
-                  <TextInput
-                    style={styles.inlineInput}
-                    placeholder="Полное количество повторений"
-                    placeholderTextColor={colors.textPlaceholder}
-                    keyboardType="numeric"
-                    value={repsInput}
-                    onChangeText={handleChangeRepsInput}
-                    maxLength={4}
-                    autoFocus
-                  />
-                  <TouchableOpacity
-                    style={styles.confirmButton}
-                    onPress={handleAddExercise}>
-                    <Ionicons name="checkmark" size={26} color={colors.white} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Отдельной строкой ПОД полем ввода, подальше от
-                    галочки подтверждения — чтобы не промахнуться при
-                    частом нажатии на галочку и случайно не удалить всё */}
-                {totalReps > 0 ? (
-                  <TouchableOpacity
-                    style={styles.clearRepsLink}
-                    onPress={() => handleRemoveExercise(exercise)}
-                    hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-                    testID={`day-editor-clear-reps-${exercise}`}>
-                    <Ionicons name="trash-outline" size={14} color={colors.danger} />
-                    <Text style={styles.clearRepsLinkText}>
-                      Удалить ввод
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
           </TouchableOpacity>
         );
       })}
@@ -687,7 +752,10 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   const content =
     variant === 'log' ? (
       <View>
-        <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{formatDateDisplay(dateKey)}</Text>
+          <UpdateAvailableIcon />
+        </View>
 
         {exerciseSelectionBlock}
 
@@ -755,13 +823,32 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
         selectedNames={displayedExerciseNames}
         onPick={handlePickExercise}
       />
+
+        <EditRepsModal
+        visible={selectedExercise !== null}
+        exercise={selectedExercise}
+        repsInput={repsInput}
+        onChangeRepsInput={handleChangeRepsInput}
+        onConfirm={handleAddExercise}
+        onClose={() => {
+          setSelectedExercise(null);
+          setRepsInput('');
+        }}
+        hasExistingReps={selectedExercise ? exerciseReps[selectedExercise] > 0 : false}
+        onDeleteInput={() => handleRemoveExercise(selectedExercise)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
-
+titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {...typography.screenTitle, color: colors.textPrimary},
   lockNotice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -784,17 +871,20 @@ const styles = StyleSheet.create({
   // уменьшается под самый длинный лейбл ("Травма/восстановление").
   statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
   statusButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.chip,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
     marginRight: 8,
     marginBottom: 8,
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  statusButtonActive: {backgroundColor: colors.primary, borderColor: colors.primary},
-  statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},  
+  statusButtonActive: {backgroundColor: colors.primary},
+   statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},  
   statusButtonTextActive: {color: colors.white},
 
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
@@ -872,24 +962,38 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginRight: 8,
     color: colors.textPrimary,
     backgroundColor: colors.background,
   },
-  confirmButton: {
-    backgroundColor: colors.success,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clearRepsLink: {
+
+  // Нижняя строка модалки ввода повторов: слева "Удалить ввод", справа
+  // "Отмена"/"Сохранить" — см. EditRepsModal выше.
+  editModalActionsRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 12,
+    marginTop: 14,
   },
+  editModalButtonsGroup: {flexDirection: 'row', alignItems: 'center'},
+  cancelModalButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+  },
+  cancelModalButtonText: {...typography.button, fontSize: 15, color: colors.textMuted},
+  saveModalButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginLeft: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+  },
+  saveModalButtonText: {...typography.button, fontSize: 15, color: colors.textMuted},
+
+  clearRepsLink: {flexDirection: 'row', alignItems: 'center'},
   clearRepsLinkText: {
     ...typography.caption,
     color: colors.danger,
@@ -921,7 +1025,7 @@ const styles = StyleSheet.create({
 
   pickerOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.94)',
+    backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -975,4 +1079,30 @@ const styles = StyleSheet.create({
   },
   pickerFolderNameRow: {flexDirection: 'row', alignItems: 'center'},
   pickerFolderText: {...typography.body, color: colors.textPrimary, marginLeft: 8},
+
+editModalOverlay: {flex: 1},
+  editModalTouchArea: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editModalCard: {
+    width: '92%',
+    marginBottom: '20%',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: colors.black,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  editModalTitle: {
+    ...typography.sectionTitle,
+    fontSize: 16,
+    color: colors.textPrimary,
+    marginBottom: 14,
+  },
 });

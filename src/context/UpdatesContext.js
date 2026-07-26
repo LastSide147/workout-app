@@ -6,27 +6,28 @@ import React, {
   useState,
 } from 'react';
 import {
-  checkAndDownloadUpdate,
+  checkForUpdate,
   wasUpdateDismissed,
   dismissUpdateBanner,
-  applyDownloadedUpdate,
+  downloadAndApplyUpdate,
 } from '../services/appUpdates';
 
 const UpdatesContext = createContext(null);
 
 // Оборачивает авторизованную часть приложения. Проверка обновления
-// запускается один раз при монтировании — то есть ровно один раз
-// за "вход" пользователя, как и требовалось.
+// запускается один раз при монтировании — ровно один раз за "вход"
+// пользователя. checkForUpdate ничего не скачивает — только
+// спрашивает сервер, есть ли новая публикация.
 export function UpdatesProvider({children}) {
   const [updateId, setUpdateId] = useState(null);
-  const [showBanner, setShowBanner] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
-      const result = await checkAndDownloadUpdate();
+      const result = await checkForUpdate();
       if (cancelled) {
         return;
       }
@@ -35,7 +36,7 @@ export function UpdatesProvider({children}) {
         setUpdateId(result.updateId);
         const dismissed = await wasUpdateDismissed(result.updateId);
         if (!cancelled) {
-          setShowBanner(!dismissed);
+          setShowUpdateModal(!dismissed);
         }
       }
 
@@ -50,19 +51,19 @@ export function UpdatesProvider({children}) {
     };
   }, []);
 
-  const dismiss = useCallback(() => {
-    setShowBanner(false);
+  const dismissUpdateModal = useCallback(() => {
+    setShowUpdateModal(false);
     dismissUpdateBanner(updateId).catch(error =>
-      console.error('Не удалось запомнить закрытие плашки обновления:', error),
+      console.error('Не удалось запомнить закрытие окна обновления:', error),
     );
   }, [updateId]);
 
   const value = {
     updateAvailable: Boolean(updateId),
-    showBanner,
+    showUpdateModal,
     checking,
-    dismiss,
-    applyUpdate: applyDownloadedUpdate,
+    dismissUpdateModal,
+    applyUpdate: downloadAndApplyUpdate,
   };
 
   return (

@@ -10,13 +10,14 @@ import {
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
-import {fetchLeaderboard} from '../services/ratings';
+import {fetchLeaderboard, recalculateDayRating} from '../services/ratings';
 import {getDateKey} from '../utils/date';
 import useExercises from '../hooks/useExercises';
 import ScreenContainer from '../components/ScreenContainer';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 import {getRepsIntensityColor} from '../constants/repsIntensity';
+import UpdateAvailableIcon from '../components/UpdateAvailableIcon';
 
 const PERIODS = [
   {key: 'day', label: 'День'},
@@ -422,7 +423,8 @@ export default function StatisticsScreen({userId}) {
   // displayName. Плоские списки (кнопки/заголовок фильтра) используют
   // exercises, "Мои упражнения" и общий рейтинг — allExercises, чтобы
   // упражнения из папок тоже учитывались.
-  const {exercises, allExercises, folders, folderExercises, loadingExercises} = useExercises();
+  const {exercises, allExercises, folders, folderExercises, loadingExercises, exerciseCoefficients} =
+    useExercises();
 
   // Для "Мои упражнения" нужны названия ВСЕХ упражнений, включая
   // лежащие в папках (под их полным именем вида "Папка Название") —
@@ -532,10 +534,40 @@ export default function StatisticsScreen({userId}) {
     loadTotals();
   }, [loadTotals]);
 
+  // "Мои упражнения" выше читает повторения НАПРЯМУЮ из записей дня —
+  // поэтому там число верное всегда. А "Рейтинг всех пользователей"
+  // читает уже ГОТОВЫЙ бакет leaderboardTotals/day-{сегодня}/... —
+  // и раньше этот бакет обновлялся только когда пользователь заходил
+  // на вкладку "Тренировка" или "История" (там висит recalculateAllRatings
+  // при фокусе). Если зайти сразу в "Статистику", не открыв те вкладки
+  // в эту сессию, бакет за сегодня мог остаться не досчитанным — отсюда
+  // "данные есть, а в фильтре по упражнению пусто". Поэтому здесь тоже,
+  // при каждом фокусе на "Статистику", сначала досчитываем рейтинг
+  // ИМЕННО сегодняшнего дня (один день — дёшево, полный пересчёт
+  // истории не нужен), и только потом читаем бакет для рейтинга.
   useFocusEffect(
     useCallback(() => {
-      loadLeaderboard();
-    }, [loadLeaderboard]),
+      let cancelled = false;
+
+      async function syncTodayThenLoadLeaderboard() {
+        const todayHasWorkout = Boolean(days[todayKey] && days[todayKey].hasExercises);
+        if (userId && !loadingExercises && todayHasWorkout) {
+          try {
+            await recalculateDayRating(userId, todayKey, exerciseCoefficients);
+          } catch (error) {
+            console.error('Не удалось обновить рейтинг сегодняшнего дня:', error);
+          }
+        }
+        if (!cancelled) {
+          loadLeaderboard();
+        }
+      }
+
+      syncTodayThenLoadLeaderboard();
+      return () => {
+        cancelled = true;
+      };
+    }, [userId, todayKey, days, loadingExercises, exerciseCoefficients, loadLeaderboard]),
   );
 
   // Когда выбирают конкретное упражнение в фильтре — период сразу
@@ -557,8 +589,10 @@ export default function StatisticsScreen({userId}) {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Статистика</Text>
-
+<View style={styles.titleRow}>
+        <Text style={styles.title}>Статистика</Text>
+        <UpdateAvailableIcon />
+      </View>
       {/* Блок 1: личная статистика пользователя за выбранный период. */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Мои упражнения</Text>
@@ -708,8 +742,13 @@ export default function StatisticsScreen({userId}) {
 }
 
 const styles = StyleSheet.create({
-  title: {...typography.screenTitle, marginBottom: 16, color: colors.textPrimary},
-
+titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {...typography.screenTitle, color: colors.textPrimary},
   sectionCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
