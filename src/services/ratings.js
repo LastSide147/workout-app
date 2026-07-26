@@ -1,8 +1,10 @@
 import firestore from '@react-native-firebase/firestore';
 import {getCurrentUser} from './firebase';
 import {getDayEntries} from './workoutDays';
+import {getProfileDemographics} from './profile';
 import {getWithOfflineFallback, saveWithOfflineFallback} from './offlineSync';
 import {getDateKey, getStartOfWeekKey, getStartOfMonthKey, parseDateKey} from '../utils/date';
+import {calculateAge} from '../utils/age';
 
 function ratingDayDoc(userId, dateKey) {
   return firestore()
@@ -24,6 +26,30 @@ function computeNickname(userId) {
   const user = getCurrentUser();
   const email = user && user.email;
   return email ? email.split('@')[0].slice(0, 50) : `Игрок-${userId.slice(0, 4)}`;
+}
+
+// Читает профиль (возраст считается из даты рождения — см. utils/age.js)
+// и возвращает СЫРЫЕ числа: точный возраст и точный вес. Именно они
+// пишутся в бакет рейтинга рядом с nickname/rating.
+//
+// Раньше здесь писалась готовая МЕТКА диапазона ("26–35 лет") — это
+// работало для фиксированных, общих для всех диапазонов. Но фильтр
+// теперь ОТНОСИТЕЛЬНЫЙ: "±10 лет/кг" от СВОЕГО значения смотрящего, а
+// не общий диапазон для всех — поэтому в бакете нужно точное число
+// (60 кг), а не готовая метка, а сама граница (60±10 = 50–70) считается
+// уже на экране Статистики, в момент, когда известно, кто именно
+// смотрит рейтинг (см. fetchLeaderboard ниже).
+//
+// Если поля в профиле не заполнены — оба значения будут null, и
+// пользователь просто не попадёт ни в один активный возрастной/весовой
+// фильтр (но останется виден, когда фильтр выключен — "Без
+// ограничений").
+async function getDemographicSnapshot(userId) {
+  const demographics = await getProfileDemographics(userId);
+  return {
+    age: calculateAge(demographics.birthYear, demographics.birthMonth),
+    weight: demographics.weight,
+  };
 }
 
 // ===================== БАКЕТЫ РЕЙТИНГА =====================
@@ -80,7 +106,22 @@ function getBucketKeysForDate(dateKey) {
 // Добавляет в batch (ещё не закоммиченный) прибавление дельты рейтинга
 // и дельт по упражнениям сразу во все 4 бакета указанной даты.
 // Дельта может быть отрицательной (например, упражнение убрали).
-function applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExerciseDelta) {
+//
+// demographicSnapshot (необязательный параметр, {age, weight} — см.
+// getDemographicSnapshot выше) — если передан, точные возраст/вес
+// записываются/обновляются в тот же документ бакета. Не все вызывающие
+// места его передают (например, разовые бонусы) — тогда поля age/weight
+// в update просто не участвуют и остаются такими, какими были записаны
+// в прошлый раз.
+function applyBucketDeltas(
+  batch,
+  userId,
+  dateKey,
+  nickname,
+  ratingDelta,
+  byExerciseDelta,
+  demographicSnapshot,
+) {
   const bucketKeys = getBucketKeysForDate(dateKey);
 
   Object.values(bucketKeys).forEach(periodKey => {
@@ -96,6 +137,11 @@ function applyBucketDeltas(batch, userId, dateKey, nickname, ratingDelta, byExer
       updatedAt: firestore.FieldValue.serverTimestamp(),
       rating: firestore.FieldValue.increment(ratingDelta),
     };
+
+    if (demographicSnapshot) {
+      update.age = demographicSnapshot.age;
+      update.weight = demographicSnapshot.weight;
+    }
 
     // ВАЖНО: поле byExercise добавляем в update, ТОЛЬКО если есть,
     // что реально прибавить. set(..., {merge: true}) мёржит поле
@@ -185,6 +231,10 @@ export async function recalculateDayRating(userId, dateKey, exerciseCoefficients
 export async function saveDayRating(userId, dateKey, rating, byExercise) {
   const nickname = computeNickname(userId);
   const dayDoc = ratingDayDoc(userId, dateKey);
+  // Читаем ДО транзакции — это профиль пользователя, а не то, за
+  // консистентность чего транзакция ниже отвечает (та следит только за
+  // тем, чтобы дельта рейтинга дня не задвоилась при гонке).
+  const demographicSnapshot = await getDemographicSnapshot(userId);
 
   await firestore().runTransaction(async transaction => {
     const previousSnapshot = await transaction.get(dayDoc);
@@ -212,7 +262,15 @@ transaction.set(dayDoc, {
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
 
-    applyBucketDeltas(transaction, userId, dateKey, nickname, ratingDelta, byExerciseDelta);
+    applyBucketDeltas(
+      transaction,
+      userId,
+      dateKey,
+      nickname,
+      ratingDelta,
+      byExerciseDelta,
+      demographicSnapshot,
+    );
 
     // Ставим ту же метку, которой пользуется одноразовый бэкфилл
     // (ensureBucketsBackfilled) — "этот день уже правильно учтён в
@@ -235,6 +293,7 @@ transaction.set(dayDoc, {
 export async function deleteDayRating(userId, dateKey) {
   const nickname = computeNickname(userId);
   const dayDoc = ratingDayDoc(userId, dateKey);
+  const demographicSnapshot = await getDemographicSnapshot(userId);
 
   await firestore().runTransaction(async transaction => {
     const previousSnapshot = await transaction.get(dayDoc);
@@ -252,7 +311,15 @@ export async function deleteDayRating(userId, dateKey) {
     });
 
 transaction.delete(dayDoc);
-    applyBucketDeltas(transaction, userId, dateKey, nickname, -previousRating, byExerciseDelta);
+    applyBucketDeltas(
+      transaction,
+      userId,
+      dateKey,
+      nickname,
+      -previousRating,
+      byExerciseDelta,
+      demographicSnapshot,
+    );
 
     // Та же метка, что и в saveDayRating выше — день удалён/обнулён
     // живым путём, бэкфиллу второй раз пересчитывать его не нужно.
@@ -309,11 +376,30 @@ function getBucketIdsForPeriod(periodKey) {
 // exerciseFilter = "Отжимания" → топ по сумме сырых повторений
 // именно этого упражнения (без коэффициента).
 //
+// demographicFilter (необязательный) — {ageToleranceYears, viewerAge,
+// weightToleranceKg, viewerWeight}. Это ОТНОСИТЕЛЬНЫЙ фильтр: "±10 лет"
+// от возраста ИМЕННО ТОГО, кто сейчас смотрит рейтинг (viewerAge), а не
+// общий для всех диапазон — у разных пользователей с одним и тем же
+// выбором "±10 лет" получится разная фактическая граница. Поэтому
+// фильтровать через Firestore .where() с общим для всех значением
+// нельзя — сравнение идёт с числом, известным только на экране
+// (собственный возраст/вес смотрящего), а Firestore не умеет сравнивать
+// поле документа с числом, которое приходит "снаружи запроса" иначе как
+// через range-условие (>=, <=) с уже вычисленными границами. Диапазон
+// (viewerAge - toleranceYears .. viewerAge + toleranceYears) в принципе
+// можно было бы пересчитать в range-запрос, но диапазон сразу по ДВУМ
+// полям (age И weight) Firestore в одном запросе не поддерживает без
+// специально настроенного составного индекса — поэтому границы
+// проверяются здесь же, в JS, уже после обычного чтения бакета (оно и
+// так читается целиком без ограничения — см. пункт про fetchLeaderboard
+// в итоговом комментарии DayEditor.js). Toleranace null или viewerAge/
+// viewerWeight null → соответствующий фильтр просто не применяется.
+//
 // Теперь это чтение НЕСКОЛЬКИХ готовых документов-бакетов (1 для
 // большинства периодов, 3 для "3 месяца"), а не скан всей истории
 // всех пользователей — и без отдельного чтения профилей, никнейм уже
 // лежит внутри бакета.
-export async function fetchLeaderboard(periodKey, exerciseFilter) {
+export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFilter) {
   const bucketIds = getBucketIdsForPeriod(periodKey);
 
   const snapshotsPerBucket = await Promise.all(
@@ -326,6 +412,8 @@ export async function fetchLeaderboard(periodKey, exerciseFilter) {
 
   const totalsByUser = {};
   const nicknameByUser = {};
+  const ageByUser = {};
+  const weightByUser = {};
 
   snapshotsPerBucket.forEach(snapshot => {
     snapshot.docs.forEach(doc => {
@@ -340,10 +428,43 @@ export async function fetchLeaderboard(periodKey, exerciseFilter) {
       if (data.nickname) {
         nicknameByUser[userId] = data.nickname;
       }
+      // "Последний встреченный бакет побеждает" — как и с nickname
+      // выше: возраст/вес чуть более "живые" данные, чем нужно (могут
+      // на день-два отставать от реальных, пока не случится новая
+      // запись), но для фильтра "±N" такой мелкой неточностью можно
+      // пренебречь.
+      if (typeof data.age === 'number') {
+        ageByUser[userId] = data.age;
+      }
+      if (typeof data.weight === 'number') {
+        weightByUser[userId] = data.weight;
+      }
     });
   });
 
-  const leaderboard = Object.keys(totalsByUser)
+  let eligibleUserIds = Object.keys(totalsByUser);
+
+  const ageToleranceYears = demographicFilter && demographicFilter.ageToleranceYears;
+  const viewerAge = demographicFilter && demographicFilter.viewerAge;
+  if (typeof ageToleranceYears === 'number' && typeof viewerAge === 'number') {
+    eligibleUserIds = eligibleUserIds.filter(userId => {
+      const theirAge = ageByUser[userId];
+      return typeof theirAge === 'number' && Math.abs(theirAge - viewerAge) <= ageToleranceYears;
+    });
+  }
+
+  const weightToleranceKg = demographicFilter && demographicFilter.weightToleranceKg;
+  const viewerWeight = demographicFilter && demographicFilter.viewerWeight;
+  if (typeof weightToleranceKg === 'number' && typeof viewerWeight === 'number') {
+    eligibleUserIds = eligibleUserIds.filter(userId => {
+      const theirWeight = weightByUser[userId];
+      return (
+        typeof theirWeight === 'number' && Math.abs(theirWeight - viewerWeight) <= weightToleranceKg
+      );
+    });
+  }
+
+  const leaderboard = eligibleUserIds
     .filter(userId => totalsByUser[userId] > 0)
     .map(userId => ({
       userId,
@@ -409,6 +530,9 @@ export async function ensureBucketsBackfilled(userId, days, exerciseCoefficients
   const profileData = profileSnapshot.exists ? profileSnapshot.data() : {};
   const backfilledDays = profileData.backfilledDays || {};
   const nickname = computeNickname(userId);
+  // Один и тот же пользователь на все дни бэкфилла — метки диапазона
+  // достаточно посчитать один раз, а не заново на каждый день.
+  const demographicSnapshot = await getDemographicSnapshot(userId);
 
   const dateKeysWithWorkout = Object.keys(days).filter(
     dateKey => days[dateKey].hasExercises,
@@ -481,7 +605,15 @@ await Promise.all(
             return;
           }
 
-          applyBucketDeltas(transaction, userId, dateKey, nickname, rating, byExercise);
+          applyBucketDeltas(
+            transaction,
+            userId,
+            dateKey,
+            nickname,
+            rating,
+            byExercise,
+            demographicSnapshot,
+          );
           transaction.set(
             profileDoc(userId),
             {backfilledDays: {[dateKey]: true}},
@@ -577,6 +709,11 @@ export async function ensureMonthBucketsMigrated(userId, days, exerciseCoefficie
 
 export async function rebuildAllBucketsFromHistory(userId) {
   const nickname = computeNickname(userId);
+  // "Ремонт" — единственный способ для УЖЕ существующих пользователей
+  // проставить метки возраста/веса в бакеты за прошлые периоды (раньше
+  // этих полей не существовало вообще). Для новых записей метки и так
+  // проставляются сами в saveDayRating/deleteDayRating.
+  const demographicSnapshot = await getDemographicSnapshot(userId);
 
   const daysSnapshot = await firestore()
     .collection('ratings')
@@ -635,6 +772,8 @@ export async function rebuildAllBucketsFromHistory(userId) {
       updatedAt: firestore.FieldValue.serverTimestamp(),
       rating,
       byExercise,
+      age: demographicSnapshot.age,
+      weight: demographicSnapshot.weight,
     });
   });
 

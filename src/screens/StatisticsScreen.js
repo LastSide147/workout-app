@@ -7,17 +7,30 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
+  Alert,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
 import {fetchLeaderboard, recalculateDayRating} from '../services/ratings';
+import {getProfileDemographics} from '../services/profile';
+import {loadStatisticsFilters, saveStatisticsFilters} from '../services/statisticsFilters';
 import {getDateKey} from '../utils/date';
+import {calculateAge} from '../utils/age';
 import useExercises from '../hooks/useExercises';
 import ScreenContainer from '../components/ScreenContainer';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 import {getRepsIntensityColor} from '../constants/repsIntensity';
 import UpdateAvailableIcon from '../components/UpdateAvailableIcon';
+import {
+  ALL_AGES_OPTION,
+  ALL_WEIGHTS_OPTION,
+  AGE_FILTER_OPTIONS,
+  WEIGHT_FILTER_OPTIONS,
+  EXACT_MATCH_LABEL,
+  getAgeToleranceYears,
+  getWeightToleranceKg,
+} from '../constants/demographicsFilters';
 
 const PERIODS = [
   {key: 'day', label: 'День'},
@@ -28,6 +41,38 @@ const PERIODS = [
 ];
 
 const ALL_EXERCISES_OPTION = 'Все упражнения';
+
+// Строится один раз для КАЖДОГО открытия модалки (значения меняются от
+// собственного возраста/веса) — превращает список общих подписей
+// (AGE_FILTER_OPTIONS/WEIGHT_FILTER_OPTIONS, например "Точно как у
+// меня") в пары {value, label} для SimpleFilterModal. value — то же
+// самое общее значение (не меняется, по нему идёт вся логика фильтра),
+// label — то, что видно в списке: у пункта "точного совпадения"
+// подставляется реальное число ("29"), у остальных пунктов подпись не
+// меняется.
+function buildFilterOptions(rawOptions, ownValue) {
+  return rawOptions.map(rawValue => ({
+    value: rawValue,
+    label:
+      rawValue === EXACT_MATCH_LABEL && typeof ownValue === 'number'
+        ? String(ownValue)
+        : rawValue,
+  }));
+}
+
+// Текст на самой (свёрнутой) кнопке-фильтре — короче, чем в списке:
+// "Без ограничений" превращается в "—" (иначе не помещается в узкую
+// кнопку, когда в одном ряду сразу три фильтра), а "точное совпадение"
+// так же, как и в списке, показывает реальное число.
+function getFilterButtonLabel(selectedValue, allOptionLabel, ownValue) {
+  if (selectedValue === allOptionLabel) {
+    return '—';
+  }
+  if (selectedValue === EXACT_MATCH_LABEL && typeof ownValue === 'number') {
+    return String(ownValue);
+  }
+  return selectedValue;
+}
 
 // Сколько строк рейтинга показывать сразу на странице Статистики, без
 // открытия модалки с полным списком. Полный список (с прокруткой)
@@ -80,9 +125,9 @@ function getStartKeyForPeriod(periodKey, referenceDate) {
 // скруглённая "дорожка" на всю ширину, сегменты делят её поровну
 // (flex: 1 у каждого), активный сегмент — светлая "таблетка" внутри.
 // Используется и на самой странице, и внутри модалки полного рейтинга.
-function PeriodSelector({value, onChange, testIdPrefix}) {
+function PeriodSelector({value, onChange, testIdPrefix, compact}) {
   return (
-    <View style={styles.segmentedTrack}>
+    <View style={[styles.segmentedTrack, compact && styles.segmentedTrackCompact]}>
       {PERIODS.map(({key, label}) => {
         const isActive = value === key;
         return (
@@ -321,6 +366,56 @@ function ExerciseFilterModal({visible, onClose, exercises, folders, folderExerci
   );
 }
 
+// Простая модалка выбора ОДНОГО варианта из плоского списка —
+// переиспользуется и для фильтра по возрасту, и для фильтра по весу
+// (только разные title/options). Та же строка modalOptionRow с
+// галочкой, что и в фильтре по упражнению, но без папок — тут список
+// всегда короткий и плоский.
+//
+// options — массив {value, label}: value — то, что реально хранится в
+// состоянии фильтра и участвует в сравнении/выборе (не меняется), label
+// — то, что видно пользователю (может быть персонализировано: "29"
+// вместо общей подписи "Точно как у меня" — см. buildFilterOptions
+// ниже по файлу).
+//
+// subtitle — необязательная строка над списком: "Ваш возраст: 34 года"/
+// "Ваш вес: 72 кг". Без неё пользователь видит только шаги допуска
+// ("±10 лет") и не понимает, от какого числа они вообще отсчитываются —
+// пришлось бы уходить в Профиль и смотреть там. Значение берётся из
+// того же профиля (ownAge/ownDemographics.weight в StatisticsScreen),
+// так что здесь показано ровно то же число, что и в личном кабинете.
+function SimpleFilterModal({visible, onClose, title, subtitle, options, selected, onSelect}) {
+  return (
+    <CenteredDropdownModal visible={visible} onClose={onClose} title={title}>
+      {subtitle ? <Text style={styles.demographicsFilterSubtitle}>{subtitle}</Text> : null}
+      <FlatList
+        data={options}
+        keyExtractor={item => item.value}
+        style={styles.dropdownList}
+        contentContainerStyle={styles.dropdownListContent}
+        showsVerticalScrollIndicator={false}
+        renderItem={({item}) => {
+          const isActive = item.value === selected;
+          return (
+            <TouchableOpacity
+              style={styles.modalOptionRow}
+              onPress={() => {
+                onSelect(item.value);
+                onClose();
+              }}
+              testID={`statistics-demographics-filter-option-${item.value}`}>
+              <Text style={[styles.modalOptionText, isActive ? styles.modalOptionTextActive : null]}>
+                {item.label}
+              </Text>
+              {isActive ? <Text style={styles.modalOptionCheck}>✓</Text> : null}
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </CenteredDropdownModal>
+  );
+}
+
 // Одна строка рейтинга — используется и на странице (первые 15), и в
 // модалке с полным списком. Первые три места подсвечиваются золотом/
 // серебром/бронзой. Теперь каждая строка — отдельная карточка (фон
@@ -446,6 +541,158 @@ export default function StatisticsScreen({userId}) {
   const [exerciseFilterVisible, setExerciseFilterVisible] = useState(false);
   const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
 
+  // Фильтр по возрасту и весу — работает вместе с фильтром по
+  // упражнению и с периодом, ни один из них не выключает другие. Пока
+  // выбрано значение "Любой" — на результат не влияет.
+  const [ageFilter, setAgeFilter] = useState(ALL_AGES_OPTION);
+  const [weightFilter, setWeightFilter] = useState(ALL_WEIGHTS_OPTION);
+  const [ageFilterVisible, setAgeFilterVisible] = useState(false);
+  const [weightFilterVisible, setWeightFilterVisible] = useState(false);
+
+  // Восстановление сохранённых фильтров Статистики (период рейтинга,
+  // допуск по возрасту, допуск по весу, упражнение) — см.
+  // src/services/statisticsFilters.js. Раньше все эти значения жили
+  // только в React-состоянии этого экрана: закрыл приложение — или
+  // вышло OTA-обновление и JS-бандл перезапустился с нуля — и все
+  // настройки сбрасывались на умолчания. AsyncStorage хранится отдельно
+  // от JS-бандла, поэтому переживает и то, и другое сама по себе.
+  //
+  // filtersRestored — не ref, а состояние: если бы это был ref, эффект
+  // сохранения ниже мог бы не узнать вовремя, что восстановление уже
+  // произошло (ref не вызывает повторный рендер/повторную проверку
+  // эффектов сам по себе).
+  const [filtersRestored, setFiltersRestored] = useState(false);
+  // Выбранное упражнение восстанавливаем отдельно от остальных трёх —
+  // его допустимые значения известны только после загрузки списка
+  // упражнений (exerciseNames), а список упражнений грузится отдельно
+  // и не всегда успевает к моменту, когда прочитается AsyncStorage.
+  // undefined — ещё не прочитано из хранилища, null — прочитано, но
+  // сохранённого упражнения не было.
+  const pendingExerciseFilterRef = useRef(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restore() {
+      const saved = await loadStatisticsFilters();
+      if (cancelled) {
+        return;
+      }
+
+      if (saved) {
+        // Каждое значение сверяется со СПИСКОМ ДЕЙСТВИТЕЛЬНЫХ НА
+        // СЕЙЧАС вариантов, а не применяется вслепую — если в будущей
+        // версии приложения набор допустимых значений изменится (шаги
+        // допуска, периоды и т.п.) и сохранённое значение перестанет
+        // быть среди них, оно просто тихо не применится, и останется
+        // значение по умолчанию, а не сломанный старый выбор.
+        if (PERIODS.some(period => period.key === saved.leaderboardPeriod)) {
+          setLeaderboardPeriod(saved.leaderboardPeriod);
+        }
+        if (AGE_FILTER_OPTIONS.includes(saved.ageFilter)) {
+          setAgeFilter(saved.ageFilter);
+        }
+        if (WEIGHT_FILTER_OPTIONS.includes(saved.weightFilter)) {
+          setWeightFilter(saved.weightFilter);
+        }
+        pendingExerciseFilterRef.current = saved.leaderboardExercise || null;
+      } else {
+        pendingExerciseFilterRef.current = null;
+      }
+
+      setFiltersRestored(true);
+    }
+
+    restore();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Довосстанавливает упражнение, как только выполнены ОБА условия:
+  // основное восстановление завершилось (filtersRestored) И список
+  // упражнений подгрузился (!loadingExercises) — порядок, в котором
+  // это происходит, может быть любым, поэтому эффект зависит от обоих
+  // и срабатывает, какое бы из двух ни завершилось последним.
+  useEffect(() => {
+    if (!filtersRestored || loadingExercises) {
+      return;
+    }
+    const pending = pendingExerciseFilterRef.current;
+    if (pending === undefined || pending === null) {
+      return;
+    }
+    pendingExerciseFilterRef.current = undefined;
+    if (pending === ALL_EXERCISES_OPTION || exerciseNames.includes(pending)) {
+      setLeaderboardExercise(pending);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersRestored, loadingExercises, exerciseNames]);
+
+  // Сохраняем при каждом изменении любого из четырёх фильтров — но
+  // только после того, как восстановление выше завершилось. Без этого
+  // условия самый первый рендер (со значениями по умолчанию, ещё до
+  // того как прочитались сохранённые) тут же перезаписал бы уже
+  // сохранённые настройки умолчаниями, опередив восстановление.
+  useEffect(() => {
+    if (!filtersRestored) {
+      return;
+    }
+    saveStatisticsFilters({
+      leaderboardPeriod,
+      ageFilter,
+      weightFilter,
+      leaderboardExercise,
+    });
+  }, [filtersRestored, leaderboardPeriod, ageFilter, weightFilter, leaderboardExercise]);
+
+  // Собственные возраст/вес пользователя (из профиля) — нужны только
+  // для того, чтобы решить, доступны ли вообще кнопки фильтра ниже.
+  // Фильтровать чужие данные, не заполнив свои — нелогично для
+  // пользователя, поэтому кнопки заблокированы, пока в профиле нет
+  // даты рождения/веса.
+  const [ownDemographics, setOwnDemographics] = useState({
+    birthYear: null,
+    birthMonth: null,
+    weight: null,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      async function loadOwnDemographics() {
+        if (!userId) {
+          return;
+        }
+        try {
+          const data = await getProfileDemographics(userId);
+          if (!cancelled) {
+            setOwnDemographics(data);
+          }
+        } catch (error) {
+          console.error('Не удалось прочитать возраст/вес профиля:', error);
+        }
+      }
+
+      loadOwnDemographics();
+      return () => {
+        cancelled = true;
+      };
+    }, [userId]),
+  );
+
+  const hasAgeFilled = Boolean(ownDemographics.birthYear && ownDemographics.birthMonth);
+  const hasWeightFilled = typeof ownDemographics.weight === 'number';
+
+  // Свой точный возраст (число, не диапазон) — фильтр относительный
+  // ("±10 лет"), поэтому граница считается от этого числа, а не от
+  // общего для всех диапазона. null, пока дата рождения не заполнена —
+  // тогда и фильтр всё равно недоступен (см. hasAgeFilled выше и
+  // блокировку кнопки ниже).
+  const ownAge = calculateAge(ownDemographics.birthYear, ownDemographics.birthMonth);
+
   useEffect(() => {
     const unsubscribe = subscribeToWorkoutDays(userId, setDays);
     return () => unsubscribe && unsubscribe();
@@ -521,14 +768,43 @@ export default function StatisticsScreen({userId}) {
     try {
       const filter =
         leaderboardExercise === ALL_EXERCISES_OPTION ? null : leaderboardExercise;
-      const result = await fetchLeaderboard(effectiveLeaderboardPeriod, filter);
+      // ageFilter/weightFilter здесь — подписи вида "±10 лет"/"Без
+      // ограничений". getAgeToleranceYears/getWeightToleranceKg достают
+      // из них число допуска (или null, если фильтр выключен) — а
+      // граница диапазона считается от ownAge/ownDemographics.weight,
+      // собственных значений смотрящего (см. пояснение в
+      // fetchLeaderboard в services/ratings.js).
+      const demographicFilter = {
+        ageToleranceYears: getAgeToleranceYears(ageFilter),
+        viewerAge: ownAge,
+        weightToleranceKg: getWeightToleranceKg(weightFilter),
+        viewerWeight: ownDemographics.weight,
+      };
+      const result = await fetchLeaderboard(
+        effectiveLeaderboardPeriod,
+        filter,
+        demographicFilter,
+      );
       setLeaderboard(result);
     } catch (error) {
       console.error('Ошибка загрузки рейтинга:', error);
     } finally {
       setLoadingLeaderboard(false);
     }
-  }, [effectiveLeaderboardPeriod, leaderboardExercise]);
+    // ageFilter/weightFilter/ownAge/ownDemographics.weight — в
+    // зависимостях: как только человек выбирает допуск (или
+    // подгружается собственный профиль), loadLeaderboard
+    // пересоздаётся, и тот же useFocusEffect ниже (у него
+    // loadLeaderboard тоже в зависимостях) сразу перезапускает загрузку
+    // — так же, как уже работает фильтр по упражнению.
+  }, [
+    effectiveLeaderboardPeriod,
+    leaderboardExercise,
+    ageFilter,
+    weightFilter,
+    ownAge,
+    ownDemographics.weight,
+  ]);
 
   useEffect(() => {
     loadTotals();
@@ -586,6 +862,13 @@ export default function StatisticsScreen({userId}) {
     .map(exercise => ({exercise, reps: totals[exercise]}));
 
   const leaderboardPreview = leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT);
+
+  // Списки для модалок фильтра — персонализированные под собственный
+  // возраст/вес (см. buildFilterOptions выше). Пересчитываются на
+  // каждый рендер — это просто map по короткому (до 7 пунктов) массиву,
+  // не запрос к БД, дорогим это не является.
+  const ageFilterOptions = buildFilterOptions(AGE_FILTER_OPTIONS, ownAge);
+  const weightFilterOptions = buildFilterOptions(WEIGHT_FILTER_OPTIONS, ownDemographics.weight);
 
   return (
     <ScreenContainer>
@@ -669,16 +952,84 @@ export default function StatisticsScreen({userId}) {
             value={leaderboardPeriod}
             onChange={setLeaderboardPeriod}
             testIdPrefix="statistics-leaderboard-period"
+            compact
           />
         )}
 
-        <TouchableOpacity
-          style={styles.exerciseFilterButton}
-          onPress={() => setExerciseFilterVisible(true)}
-          testID="statistics-exercise-filter-button">
-          <Text style={styles.exerciseFilterButtonText}>{leaderboardExercise}</Text>
-          <Text style={styles.exerciseFilterArrow}>▾</Text>
-        </TouchableOpacity>
+        {/* Три фильтра — возраст, вес, упражнение — в один ряд, поровну
+            по ширине (flex: 1 у каждого), чтобы сэкономить место по
+            высоте. На сами модалки выбора (SimpleFilterModal/
+            ExerciseFilterModal ниже) это никак не влияет — открываются
+            и выглядят как прежде, меняется только вид свёрнутой
+            кнопки. "Без ограничений"/"Все упражнения" в свёрнутом виде
+            не помещаются в узкую кнопку — вместо этого показываем
+            "—" (см. getFilterButtonLabel выше по файлу); в самом
+            списке при открытии подпись остаётся полной. */}
+        <View style={styles.demographicsFilterRow}>
+          <TouchableOpacity
+            style={[
+              styles.demographicsFilterButton,
+              styles.demographicsFilterButtonSpacing,
+              !hasAgeFilled && styles.demographicsFilterButtonDisabled,
+            ]}
+            onPress={() => {
+              if (!hasAgeFilled) {
+                Alert.alert(
+                  'Фильтр недоступен',
+                  'Чтобы фильтровать рейтинг по возрасту, сначала укажите дату рождения в профиле.',
+                );
+                return;
+              }
+              setAgeFilterVisible(true);
+            }}
+            testID="statistics-age-filter-button">
+            <Text
+              style={[
+                styles.exerciseFilterButtonText,
+                !hasAgeFilled && styles.demographicsFilterButtonTextDisabled,
+              ]}
+              numberOfLines={1}>
+              {getFilterButtonLabel(ageFilter, ALL_AGES_OPTION, ownAge)}
+            </Text>
+            <Text style={styles.exerciseFilterArrow}>▾</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.demographicsFilterButton,
+              styles.demographicsFilterButtonSpacing,
+              !hasWeightFilled && styles.demographicsFilterButtonDisabled,
+            ]}
+            onPress={() => {
+              if (!hasWeightFilled) {
+                Alert.alert(
+                  'Фильтр недоступен',
+                  'Чтобы фильтровать рейтинг по весу, сначала укажите вес в профиле.',
+                );
+                return;
+              }
+              setWeightFilterVisible(true);
+            }}
+            testID="statistics-weight-filter-button">
+            <Text
+              style={[
+                styles.exerciseFilterButtonText,
+                !hasWeightFilled && styles.demographicsFilterButtonTextDisabled,
+              ]}
+              numberOfLines={1}>
+              {getFilterButtonLabel(weightFilter, ALL_WEIGHTS_OPTION, ownDemographics.weight)}
+            </Text>
+            <Text style={styles.exerciseFilterArrow}>▾</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.demographicsFilterButton}
+            onPress={() => setExerciseFilterVisible(true)}
+            testID="statistics-exercise-filter-button">
+            <Text style={styles.exerciseFilterButtonText} numberOfLines={1}>
+              {leaderboardExercise === ALL_EXERCISES_OPTION ? '—' : leaderboardExercise}
+            </Text>
+            <Text style={styles.exerciseFilterArrow}>▾</Text>
+          </TouchableOpacity>
+        </View>
 
         {loadingLeaderboard ? (
           <ActivityIndicator style={styles.loader} color={colors.primary} />
@@ -728,6 +1079,26 @@ export default function StatisticsScreen({userId}) {
         onSelect={handleSelectLeaderboardExercise}
       />
 
+      <SimpleFilterModal
+        visible={ageFilterVisible}
+        onClose={() => setAgeFilterVisible(false)}
+        title="Фильтр по возрасту"
+        subtitle={hasAgeFilled ? `Ваш возраст: ${ownAge} лет` : null}
+        options={ageFilterOptions}
+        selected={ageFilter}
+        onSelect={setAgeFilter}
+      />
+
+      <SimpleFilterModal
+        visible={weightFilterVisible}
+        onClose={() => setWeightFilterVisible(false)}
+        title="Фильтр по весу"
+        subtitle={hasWeightFilled ? `Ваш вес: ${ownDemographics.weight} кг` : null}
+        options={weightFilterOptions}
+        selected={weightFilter}
+        onSelect={setWeightFilter}
+      />
+
       <LeaderboardModal
         visible={leaderboardModalVisible}
         onClose={() => setLeaderboardModalVisible(false)}
@@ -761,24 +1132,39 @@ titleRow: {
     elevation: 2,
   },
 
+  // Раньше уменьшал только скругление углов (borderRadius) — само ПОЛЕ
+  // (фон, где День/Неделя/Месяц) по высоте оставалось больше, чем ряд
+  // фильтров под ним, потому что paddingVertical у segment ниже был
+  // ближе к размеру кнопок-фильтров, а не заметно меньше. Теперь сама
+  // рамка компактнее (padding сведён почти к нулю, marginBottom меньше),
+  // и сегменты внутри ниже — весь блок целиком заметно меньше, а не
+  // только его углы.
   segmentedTrack: {
     flexDirection: 'row',
     backgroundColor: colors.background,
-    borderRadius: 20,
-    padding: 3,
-    marginBottom: 16,
+    borderRadius: 14,
+    padding: 1,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
   },
   segment: {
     flex: 1,
-    paddingVertical: 9,
-    borderRadius: 17,
+    paddingVertical: 3,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   segmentActive: {backgroundColor: colors.primary},
-  segmentText: {...typography.buttonSmall, fontSize: 12, color: colors.textSecondary},
+  // Тот же цвет и стиль текста, что и у exerciseFilterButtonText — но
+  // тот же РАЗМЕР тоже (fontSize: 12), не только цвет. В прошлый раз,
+  // когда унифицировали цвет, размер шрифта случайно вырос с 11 до 13
+  // — крупнее, чем у кнопок-фильтров под ним (12), и весь переключатель
+  // снова стал выглядеть большим, хотя отступы у него уже были
+  // уменьшены. Активный сегмент (segmentTextActive) по-прежнему
+  // подсвечивается отдельно — это не расхождение стиля, а обозначение
+  // текущего выбора.
+  segmentText: {...typography.body, fontSize: 12, color: colors.textPrimary},
   segmentTextActive: {color: colors.white, fontWeight: 'bold'},
 
   sectionTitle: {...typography.sectionTitle, marginBottom: 8, color: colors.textPrimary},
@@ -851,20 +1237,55 @@ titleRow: {
   totalLabel: {...typography.sectionTitle, fontSize: 18, color: colors.textPrimary},
   totalValue: {...typography.number, fontSize: 18, color: colors.primary},
 
-  exerciseFilterButton: {
+  // paddingVertical/paddingHorizontal/fontSize уменьшены (было 10/16/15)
+  // — вместе с demographicsFilterButton ниже это и есть те самые
+  // "овальные" кнопки-фильтры, которые нужно было сделать компактнее.
+  // exerciseFilterButtonText/exerciseFilterArrow — общий текстовый
+  // стиль для ВСЕХ трёх фильтров ряда ниже (возраст/вес/упражнение), не
+  // только для упражнения (имя не меняли, чтобы не гонять его по всему
+  // файлу). Собственного отдельного "квадратного" стиля кнопки-
+  // упражнения больше нет — все три используют demographicsFilterButton.
+  exerciseFilterButtonText: {...typography.body, fontSize: 12, color: colors.textPrimary},
+  exerciseFilterArrow: {fontSize: 11, color: colors.textMuted},
+
+  // compact — сжимает нижний отступ у PeriodSelector только там, где
+  // явно передан проп compact (сейчас — только в блоке "Рейтинг всех
+  // пользователей", где под ним теперь ещё один ряд фильтров). Другие
+  // места PeriodSelector это не затрагивает.
+  segmentedTrackCompact: {marginBottom: 8},
+
+  // Три фильтра (возраст/вес/упражнение) в один ряд поровну по ширине —
+  // раньше упражнение было отдельной полноширинной кнопкой под этим
+  // рядом, теперь все три одного размера, экономит место по высоте.
+  demographicsFilterRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  // paddingVertical подобран так, чтобы высота кнопки совпадала с
+  // высотой сегмента переключателя периода: у того сверху ещё и
+  // padding:1 самой "дорожки" (segmentedTrack) + paddingVertical:3 у
+  // сегмента = 8 суммарно по вертикали; у этой кнопки нет отдельной
+  // обёртки-дорожки, поэтому весь запас (8 = 4+4) даёт сама кнопка.
+  // Ширина у всех разная (текст разной длины) — это нормально, просил
+  // одинаковую только высоту.
+  demographicsFilterButton: {
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.background,
-    borderRadius: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
-  exerciseFilterButtonText: {...typography.body, fontSize: 15, color: colors.textPrimary},
-  exerciseFilterArrow: {fontSize: 14, color: colors.textMuted},
+  demographicsFilterButtonSpacing: {marginRight: 6},
+  // Пока в профиле не заполнены возраст/вес — кнопка визуально
+  // притушена и по тапу не открывает список (см. Alert в onPress выше),
+  // а объясняет, почему именно недоступна.
+  demographicsFilterButtonDisabled: {opacity: 0.45},
+  demographicsFilterButtonTextDisabled: {color: colors.textMuted},
 
   showAllButton: {
     marginTop: 8,
@@ -905,6 +1326,13 @@ titleRow: {
     borderBottomColor: colors.divider,
   },
   dropdownTitle: {...typography.sectionTitle, fontSize: 16, color: colors.textPrimary},
+  demographicsFilterSubtitle: {
+    ...typography.caption,
+    fontSize: 13,
+    color: colors.textMuted,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+  },
 
   // style — только размер контейнера. paddingBottom здесь НЕ создаёт
   // отступ у прокручиваемого контента — именно поэтому нужен отдельный
