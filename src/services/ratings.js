@@ -44,12 +44,39 @@ function computeNickname(userId) {
 // пользователь просто не попадёт ни в один активный возрастной/весовой
 // фильтр (но останется виден, когда фильтр выключен — "Без
 // ограничений").
+//
+// ВАЖНО: эта функция вызывается из saveDayRating/deleteDayRating/
+// ensureBucketsBackfilled/rebuildAllBucketsFromHistory — а это САМЫЕ
+// критичные операции всего приложения (без них не работает сохранение
+// подходов, "ремонт" рейтинга и т.п.). Метки возраста/веса — вторичная,
+// вспомогательная функция (нужна только для фильтра в Статистике), и
+// она НИКОГДА не должна иметь возможность подвесить или сломать
+// основную запись/удаление рейтинга, если вдруг чтение профиля
+// зависнет или упадёт с ошибкой (например, нет сети и профиль ещё ни
+// разу не читался на этом устройстве — тогда офлайн-кэш документа
+// пуст). Поэтому здесь СВОЙ короткий таймаут и свой try/catch: что бы
+// ни случилось при чтении профиля, эта функция гарантированно
+// вернёт результат за разумное время, просто с null вместо
+// возраста/веса, а не зависнет и не прервёт вызывающую операцию.
 async function getDemographicSnapshot(userId) {
-  const demographics = await getProfileDemographics(userId);
-  return {
-    age: calculateAge(demographics.birthYear, demographics.birthMonth),
-    weight: demographics.weight,
-  };
+  try {
+    const demographics = await Promise.race([
+      getProfileDemographics(userId),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('DEMOGRAPHICS_READ_TIMEOUT')), 4000),
+      ),
+    ]);
+    return {
+      age: calculateAge(demographics.birthYear, demographics.birthMonth),
+      weight: demographics.weight,
+    };
+  } catch (error) {
+    console.error(
+      'Не удалось получить возраст/вес для метки бакета рейтинга (не критично, продолжаем без них):',
+      error,
+    );
+    return {age: null, weight: null};
+  }
 }
 
 // ===================== БАКЕТЫ РЕЙТИНГА =====================
@@ -476,12 +503,50 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
   return leaderboard;
 }
 
+// Эта функция вызывается БЕЗУСЛОВНО при каждом заходе на вкладку
+// "Тренировка"/"История" (см. WorkoutHistoryScreen.js) — она не про
+// правку ОДНОГО конкретного дня пользователем (для этого есть прямые
+// вызовы recalculateDayRating/queueRatingWrite из DayEditor.js), а про
+// "на всякий случай досчитать всё" — например, если рейтинг где-то
+// разошёлся с реальными записями. Из-за этого при быстром
+// переключении вкладок туда-сюда она может запуститься несколько раз
+// за секунды и попытаться заново переписать ОДНИ И ТЕ ЖЕ дни, которые
+// сама же только что переписала. Раньше (пока в правилах безопасности
+// не было 2-секундной задержки на запись одного документа) это было
+// просто лишним расходом дневной квоты. Теперь же сервер такие
+// повторы прямо отклоняет как [firestore/permission-denied] — что и
+// увидел пользователь: сотня одинаковых ошибок в консоли после
+// нескольких быстрых переключений.
+//
+// recentBulkRecalcAttempts — простая карта в памяти (не переживает
+// перезапуск приложения, и не должна: это не хранилище данных, а
+// только защита от повторного запуска В ТЕЧЕНИЕ нескольких секунд).
+// Порог сознательно взят немного БОЛЬШЕ серверной задержки (2 секунды
+// в firestore.rules), чтобы не пытаться переписать то, что сервер и
+// так только что отклонит. Если пользователь ДЕЙСТВИТЕЛЬНО изменит
+// этот день (добавит/удалит упражнение), это пойдёт через прямые
+// вызовы из DayEditor.js — они этой картой не ограничены и сработают
+// сразу же, как и раньше.
+const recentBulkRecalcAttempts = new Map();
+const BULK_RECALC_COOLDOWN_MS = 5000;
+
+function shouldSkipBulkRecalc(userId, dateKey) {
+  const key = `${userId}:${dateKey}`;
+  const lastAttempt = recentBulkRecalcAttempts.get(key);
+  const now = Date.now();
+  if (lastAttempt && now - lastAttempt < BULK_RECALC_COOLDOWN_MS) {
+    return true;
+  }
+  recentBulkRecalcAttempts.set(key, now);
+  return false;
+}
+
 // Дни обрабатываются параллельно (Promise.all), а не по очереди —
 // иначе один "зависший" офлайн день (ожидание ack от .set()) держал
 // бы весь цикл и остальные дни не пересчитывались бы вообще.
 export async function recalculateAllRatings(userId, days, exerciseCoefficients) {
   const dateKeysWithWorkout = Object.keys(days).filter(
-    dateKey => days[dateKey].hasExercises,
+    dateKey => days[dateKey].hasExercises && !shouldSkipBulkRecalc(userId, dateKey),
   );
 
   await Promise.all(
@@ -715,11 +780,18 @@ export async function rebuildAllBucketsFromHistory(userId) {
   // проставляются сами в saveDayRating/deleteDayRating.
   const demographicSnapshot = await getDemographicSnapshot(userId);
 
-  const daysSnapshot = await firestore()
-    .collection('ratings')
-    .doc(userId)
-    .collection('days')
-    .get();
+  // Раньше здесь стоял голый .get() без какой-либо защиты по времени —
+  // единственное место во всём файле, которое так читает данные (везде
+  // рядом используется getWithOfflineFallback с таймаутом и откатом на
+  // кэш). Если сеть не отвечала, этот единственный вызов мог зависнуть
+  // насмерть, и вся "ремонтная" функция вместе с ним — кнопка "Пересчитать
+  // рейтинг" висела в состоянии "Пересчитываю..." бесконечно, без
+  // единой ошибки в консоли. Это и есть настоящая причина зависания —
+  // а не чтение профиля (оно уже было защищено самим getWithOfflineFallback
+  // внутри getProfileDemographics ещё до сегодняшней правки).
+  const daysSnapshot = await getWithOfflineFallback(
+    firestore().collection('ratings').doc(userId).collection('days'),
+  );
 
   const totalsByPeriod = {};
 

@@ -2,7 +2,11 @@ import React, {useCallback, useState, useEffect} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {Calendar, LocaleConfig} from 'react-native-calendars';
 import {useFocusEffect} from '@react-navigation/native';
-import {subscribeToWorkoutDays, autoFillMissedDays} from '../services/workoutDays';
+import {
+  subscribeToWorkoutDays,
+  autoFillMissedDays,
+  ensureWorkoutDayTotalsBackfilled,
+} from '../services/workoutDays';
 import {
   recalculateAllRatings,
   ensureBucketsBackfilled,
@@ -113,6 +117,14 @@ export default function WorkoutHistoryScreen({userId}) {
         // каждом заходе на экран, лишней работы они не сделают.
         ensureBucketsBackfilled(userId, days, exerciseCoefficients);
         ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
+
+        // Аналогичный по духу одноразовый бэкфилл, но для "Мои
+        // упражнения" в Статистике — переносит повторения из старых
+        // дней в поле byExercise прямо на документе дня (см. подробный
+        // комментарий в services/workoutDays.js). Тоже безопасно
+        // вызывать при каждом заходе на экран: дни, где поле уже есть,
+        // просто пропускаются без единого лишнего чтения.
+        ensureWorkoutDayTotalsBackfilled(userId, days);
 
         // Дни, которые уже закончились и остались совсем пустыми (ни
         // тренировки, ни статуса) — автоматически помечаем "Пропустил".

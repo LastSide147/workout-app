@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
-import {subscribeToWorkoutDays, getDayEntries} from '../services/workoutDays';
+import {subscribeToWorkoutDays} from '../services/workoutDays';
 import {fetchLeaderboard, recalculateDayRating} from '../services/ratings';
 import {getProfileDemographics} from '../services/profile';
 import {loadStatisticsFilters, saveStatisticsFilters} from '../services/statisticsFilters';
@@ -527,8 +527,6 @@ export default function StatisticsScreen({userId}) {
   // список.
   const exerciseNames = allExercises.map(item => item.displayName);
 
-  const totalsRequestIdRef = useRef(0);
-
   const [totals, setTotals] = useState({});
   const [overallTotal, setOverallTotal] = useState(0);
   const [loadingTotals, setLoadingTotals] = useState(true);
@@ -700,60 +698,51 @@ export default function StatisticsScreen({userId}) {
 
   const personalStartKey = getStartKeyForPeriod(personalPeriod, new Date());
 
-  const loadTotals = useCallback(async () => {
+  // Раньше здесь на каждый выбранный период (день/неделя/месяц/год)
+  // отдельно ходили в базу за entries КАЖДОГО подходящего дня —
+  // getDayEntries(userId, dateKey) для каждого dateKey из диапазона.
+  // Это и было самым дорогим местом во всей статистике: например,
+  // "Год" мог стоить около сотни лишних чтений за один открытый экран.
+  //
+  // Теперь это не нужно. setExerciseEntry/deleteExerciseEntry (см.
+  // services/workoutDays.js) при каждом сохранении сами дублируют
+  // повторения упражнения прямо в поле byExercise документа дня. А
+  // документ дня и так уже целиком лежит в памяти в объекте days —
+  // подписка subscribeToWorkoutDays выше по файлу читает его живьём и
+  // бесплатно для ВСЕХ дней сразу, независимо от выбранного периода.
+  // Поэтому подсчёт стал обычным синхронным суммированием уже
+  // загруженных данных — без единого нового обращения к Firestore, и
+  // без гонки между переключениями периода (раньше для неё нужен был
+  // requestId — теперь между стартом и концом подсчёта нет асинхронного
+  // разрыва, переключить период "посреди" вычисления просто нельзя).
+  const loadTotals = useCallback(() => {
     if (!userId) {
       return;
     }
 
-    // Свой номерок для ЭТОГО конкретного запуска — увеличиваем общий
-    // счётчик и запоминаем значение именно для этого вызова.
-    const requestId = totalsRequestIdRef.current + 1;
-    totalsRequestIdRef.current = requestId;
+    const matchingDateKeys = Object.keys(days).filter(
+      dateKey =>
+        dateKey >= personalStartKey &&
+        dateKey <= todayKey &&
+        days[dateKey].hasExercises,
+    );
 
-    setLoadingTotals(true);
-    try {
-      const matchingDateKeys = Object.keys(days).filter(
-        dateKey =>
-          dateKey >= personalStartKey &&
-          dateKey <= todayKey &&
-          days[dateKey].hasExercises,
-      );
+    const newTotals = {};
+    let newOverallTotal = 0;
 
-      const entriesPerDay = await Promise.all(
-        matchingDateKeys.map(dateKey => getDayEntries(userId, dateKey)),
-      );
-
-      // Пока шёл этот запрос, пользователь мог уже переключить период —
-      // тогда запустился более новый запрос, и общий счётчик уже ушёл
-      // вперёд. Если наш номерок больше не совпадает с последним —
-      // значит, наш результат устарел, применять его нельзя.
-      if (totalsRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      const newTotals = {};
-      let newOverallTotal = 0;
-
-      entriesPerDay.forEach(entries => {
-        entries.forEach(({exercise, reps}) => {
-          newTotals[exercise] = (newTotals[exercise] || 0) + reps;
-          newOverallTotal += reps;
-        });
+    matchingDateKeys.forEach(dateKey => {
+      const byExercise = days[dateKey].byExercise || {};
+      Object.keys(byExercise).forEach(exercise => {
+        const reps = byExercise[exercise] || 0;
+        newTotals[exercise] = (newTotals[exercise] || 0) + reps;
+        newOverallTotal += reps;
       });
+    });
 
-      setTotals(newTotals);
-      setOverallTotal(newOverallTotal);
-      setTotalsPeriod(personalPeriod);
-    } catch (error) {
-      console.error('Ошибка подсчёта статистики:', error);
-    } finally {
-      // "Загрузка..." тоже убираем только если это всё ещё самый
-      // свежий запрос — иначе устаревший запрос мог бы преждевременно
-      // погасить индикатор загрузки для актуального, ещё не готового.
-      if (totalsRequestIdRef.current === requestId) {
-        setLoadingTotals(false);
-      }
-    }
+    setTotals(newTotals);
+    setOverallTotal(newOverallTotal);
+    setTotalsPeriod(personalPeriod);
+    setLoadingTotals(false);
   }, [userId, days, personalStartKey, personalPeriod, todayKey]);
 
   // Ограничение по периоду касается ТОЛЬКО просмотра конкретного

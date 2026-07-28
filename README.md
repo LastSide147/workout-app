@@ -102,7 +102,7 @@ npx react-native run-android
 
 # Публикация
 
-eas update --channel preview --message "Описание изменения" --environment preview
+eas update --channel preview --message "text" --environment preview
 
 # Новая сборка APK
 

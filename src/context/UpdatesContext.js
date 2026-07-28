@@ -58,11 +58,25 @@ export function UpdatesProvider({children}) {
     );
   }, [updateId]);
 
+  // Открыть то же самое модальное окно ВРУЧНУЮ — по нажатию на зелёную
+  // иконку в заголовке "Тренировки"/"Истории"/"Статистики" (см.
+  // UpdateAvailableIcon.js). Раньше иконка не открывала это окно, а
+  // сама показывала свой Alert.alert с подтверждением — тот же самый
+  // сценарий обновления, но другим, отдельным путём. Теперь и
+  // автопоказ при входе, и нажатие на иконку ведут в ОДНО и то же окно
+  // и вызывают ОДНУ и ту же функцию applyUpdate — разницы в поведении
+  // между ними больше нет, потому что кода для показа обновления
+  // теперь ровно один, а не два похожих.
+  const openUpdateModal = useCallback(() => {
+    setShowUpdateModal(true);
+  }, []);
+
   const value = {
     updateAvailable: Boolean(updateId),
     showUpdateModal,
     checking,
     dismissUpdateModal,
+    openUpdateModal,
     applyUpdate: downloadAndApplyUpdate,
   };
 
