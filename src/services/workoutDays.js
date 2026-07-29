@@ -53,20 +53,31 @@ export function subscribeToDayEntries(userId, dateKey, onData) {
 // День помечается как "есть тренировка", статус (выходной/пропуск/
 // травма) сбрасывается, раз в этот день появилось упражнение.
 //
-// Помимо этого, повторения ЭТОГО упражнения дублируются в поле
-// byExercise прямо на документе дня — через точечный путь
-// ("byExercise.НазваниеУпражнения"), а не как вложенный объект. Так
-// Firestore обновляет ТОЛЬКО этот один ключ карты, не затирая
-// остальные упражнения, уже записанные туда в этот день. Смысл: раньше
-// экран "Мои упражнения" при каждом открытии сам ходил в базу за
-// entries КАЖДОГО дня выбранного периода (день/неделя/месяц/год) —
-// это и были самые дорогие чтения в статистике. Документ дня и так уже
-// читается целиком, бесплатно и постоянно (через subscribeToWorkoutDays,
-// см. ниже) — раз мы всё равно каждый раз пишем в этот документ, имеет
-// смысл добавить туда же и сумму по упражнению, чтобы "Мои упражнения"
-// могли брать готовые числа из уже загруженных дней и вообще не делать
-// отдельных чтений (см. loadTotals в StatisticsScreen.js).
-export async function setExerciseEntry(userId, dateKey, exerciseName, reps) {
+// Помимо этого, повторения ВСЕХ упражнений дня дублируются в поле
+// byExercise прямо на документе дня — ЦЕЛОЙ картой, не точечным путём.
+//
+// РАНЬШЕ здесь стоял точечный путь ("byExercise.НазваниеУпражнения") —
+// расчёт был на то, что Firestore распознает точку в ключе как
+// вложенность и обновит только один ключ карты, не трогая остальные.
+// Это НЕ СРАБОТАЛО: в @react-native-firebase/firestore обычный (не
+// FieldPath) JS-ключ с точкой при .set(..., {merge:true}) сохраняется
+// БУКВАЛЬНО, как отдельное поле верхнего уровня с точкой в названии —
+// вместо вложенности получались поля вида "byExercise.Название" рядом
+// с так и остававшимся пустым byExercise: {}. Именно это увидел
+// пользователь в Firebase Console: "Мои упражнения" в Статистике
+// читает byExercise как карту и не находит там ничего, хотя данные по
+// факту записаны — просто не туда.
+//
+// ИСПРАВЛЕНИЕ: вместо того чтобы полагаться на путь Firestore, экран
+// (DayEditor) и так уже ЗНАЕТ полную актуальную карту "упражнение →
+// повторения" на момент вызова (exerciseReps с добавленным/убранным
+// упражнением) — просто передаём её сюда целиком четвёртым аргументом
+// (allExerciseReps) и пишем как ОБЫЧНОЕ значение поля byExercise (не
+// путь). При merge:true это полностью заменяет карту целиком на
+// актуальную — ровно то же самое, что мы и хотели, просто без
+// зависимости от того, как именно эта библиотека трактует точку в
+// строковом ключе.
+export async function setExerciseEntry(userId, dateKey, exerciseName, reps, allExerciseReps) {
   const batch = firestore().batch();
 
   batch.set(entriesCollection(userId, dateKey).doc(exerciseName), {
@@ -81,7 +92,7 @@ export async function setExerciseEntry(userId, dateKey, exerciseName, reps) {
       status: null,
       hasExercises: true,
       updatedAt: firestore.FieldValue.serverTimestamp(),
-      [`byExercise.${exerciseName}`]: reps,
+      byExercise: allExerciseReps || {},
     },
     {merge: true},
   );
@@ -93,14 +104,16 @@ export async function setExerciseEntry(userId, dateKey, exerciseName, reps) {
 // упражнения). hasRemainingExercises передаётся с экрана — true, если
 // после удаления в этот день остаются другие упражнения.
 //
-// Ключ этого упражнения в byExercise удаляется точечным путём через
-// firestore.FieldValue.delete() — снова только один ключ карты, а не
-// вся карта целиком.
+// allExerciseReps — актуальная карта "упражнение → повторения" ПОСЛЕ
+// удаления (DayEditor уже её посчитал перед вызовом) — записывается
+// целиком, той же логикой, что и в setExerciseEntry выше (см. подробное
+// объяснение там, почему это не точечный путь).
 export async function deleteExerciseEntry(
   userId,
   dateKey,
   exerciseName,
   hasRemainingExercises,
+  allExerciseReps,
 ) {
   const batch = firestore().batch();
 
@@ -113,7 +126,7 @@ export async function deleteExerciseEntry(
       status: null,
       hasExercises: hasRemainingExercises,
       updatedAt: firestore.FieldValue.serverTimestamp(),
-      [`byExercise.${exerciseName}`]: firestore.FieldValue.delete(),
+      byExercise: allExerciseReps || {},
     },
     {merge: true},
   );
@@ -196,17 +209,27 @@ export async function autoFillMissedDays(userId, days, getDateKey, parseDateKey)
   );
 }
 
-// Одноразовый бэкфилл поля byExercise для СТАРЫХ дней, которые были
-// созданы ДО того, как setExerciseEntry/deleteExerciseEntry начали
-// записывать его на документ дня. Без этого у старых дней это поле
-// просто отсутствует, и "Мои упражнения" считало бы по ним 0 вместо
-// настоящих чисел.
+// Одноразовый бэкфилл/самолечение поля byExercise. Нужен для ДВУХ
+// разных случаев:
 //
-// Для каждого дня с hasExercises=true, но без byExercise, разово
-// читаем его подколлекцию entries (это и есть ЕДИНСТВЕННОЕ чтение —
-// дальше, после того как поле записано на день, оно уже приходит
-// бесплатно вместе с days через subscribeToWorkoutDays, и повторно
-// сюда заходить не нужно).
+// 1. СТАРЫЕ дни, созданные ДО того, как setExerciseEntry начал вообще
+//    писать это поле — там byExercise просто отсутствует.
+// 2. ИСПОРЧЕННЫЕ дни — те, что попали под баг с точечным путём (см.
+//    подробное объяснение в setExerciseEntry выше): у них byExercise
+//    ЕСТЬ, но пустой ({}), а настоящие числа осели рядом отдельными
+//    "мусорными" полями верхнего уровня вида "byExercise.Название".
+//    Раньше проверка "!days[dateKey].byExercise" такие дни пропускала:
+//    пустой объект {} в JS — это ИСТИНА (!{}=== false), а не "нет
+//    значения", поэтому бэкфилл считал такой день уже обработанным и
+//    даже не пытался его починить.
+//
+// Теперь условие — "hasExercises есть, а полезных ключей в byExercise
+// нет" (Object.keys(...).length === 0), это ловит ОБА случая сразу.
+// А сама починка не только перечитывает entries (настоящий источник
+// правды) и переписывает byExercise целиком, но и УДАЛЯЕТ найденные
+// мусорные поля "byExercise.Название" — их имена уже известны прямо из
+// объекта days (см. strayKeys ниже), читать что-то дополнительно для
+// этого не нужно.
 //
 // В отличие от бэкфилла бакетов рейтинга (ensureBucketsBackfilled в
 // services/ratings.js), здесь НЕ нужна защита транзакцией от гонки
@@ -216,9 +239,14 @@ export async function autoFillMissedDays(userId, days, getDateKey, parseDateKey)
 // из entries — запусти эту функцию хоть два раза подряд, хоть с двух
 // устройств одновременно, результат всё равно останется правильным.
 export async function ensureWorkoutDayTotalsBackfilled(userId, days) {
-  const dateKeysToBackfill = Object.keys(days).filter(
-    dateKey => days[dateKey].hasExercises && !days[dateKey].byExercise,
-  );
+  const dateKeysToBackfill = Object.keys(days).filter(dateKey => {
+    const day = days[dateKey];
+    if (!day.hasExercises) {
+      return false;
+    }
+    const byExercise = day.byExercise || {};
+    return Object.keys(byExercise).length === 0;
+  });
 
   if (dateKeysToBackfill.length === 0) {
     return;
@@ -232,9 +260,23 @@ export async function ensureWorkoutDayTotalsBackfilled(userId, days) {
         entries.forEach(({exercise, reps}) => {
           byExercise[exercise] = reps;
         });
-        await workoutsCollection(userId)
-          .doc(dateKey)
-          .set({byExercise}, {merge: true});
+
+        // Мусорные поля от старого (сломанного) точечного пути — их
+        // видно прямо в самом документе дня, как обычные ключи объекта
+        // days[dateKey], буквально начинающиеся с "byExercise.".
+        // Каждое такое поле нужно явно удалить через
+        // firestore.FieldValue.delete() — просто не упомянуть его в
+        // записи недостаточно, при merge:true поля, которых нет в
+        // переданном объекте, остаются как есть.
+        const strayKeys = Object.keys(days[dateKey]).filter(key =>
+          key.startsWith('byExercise.'),
+        );
+        const update = {byExercise};
+        strayKeys.forEach(key => {
+          update[key] = firestore.FieldValue.delete();
+        });
+
+        await workoutsCollection(userId).doc(dateKey).set(update, {merge: true});
       } catch (error) {
         console.error(
           `Не удалось перенести упражнения за ${dateKey} в документ дня (бэкфилл byExercise):`,

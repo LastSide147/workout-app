@@ -8,6 +8,8 @@ import {
   Alert,
   Modal,
   Keyboard,
+    ActivityIndicator,
+
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {getCurrentUser} from '../services/firebase';
@@ -147,7 +149,7 @@ export default function ProfileScreen() {
   // блокирует повторный тап, пока идёт пересборка (может занять
   // заметное время — читает всю историю рейтингов пользователя).
   const [rebuilding, setRebuilding] = useState(false);
-
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
   const handleLogout = () => {
     Alert.alert('Выйти из аккаунта', 'Вы уверены?', [
       {text: 'Отмена', style: 'cancel'},
@@ -164,9 +166,11 @@ const handleApplyUpdate = () => {
         {
           text: 'Обновить',
           onPress: async () => {
+            setApplyingUpdate(true);
             try {
               await applyUpdate();
             } catch (error) {
+              setApplyingUpdate(false);
               Alert.alert('Не удалось скачать обновление', String(error));
             }
           },
@@ -174,7 +178,6 @@ const handleApplyUpdate = () => {
       ],
     );
   };
-
   // Полная пересборка бакетов рейтинга (день/неделя/месяц/год) из
   // истории — используется только как ремонт после сбоя данных, не
   // для повседневной работы. Поэтому запуск всегда идёт через
@@ -276,17 +279,16 @@ const handleApplyUpdate = () => {
                 testID="profile-weight-input"
               />
 
-              <TouchableOpacity
-                style={[
-                  styles.saveDemographicsButton,
-                  savingDemographics && styles.saveDemographicsButtonDisabled,
-                ]}
+<TouchableOpacity
+                style={styles.saveDemographicsButton}
                 onPress={handleSaveDemographics}
                 disabled={savingDemographics}
                 testID="profile-save-demographics-button">
-                <Text style={styles.saveDemographicsButtonText}>
-                  {savingDemographics ? 'Сохраняю...' : 'Сохранить'}
-                </Text>
+                {savingDemographics ? (
+                  <ActivityIndicator size="small" color={colors.textMuted} />
+                ) : (
+                  <Text style={styles.saveDemographicsButtonText}>Сохранить</Text>
+                )}
               </TouchableOpacity>
             </>
           )}
@@ -339,13 +341,18 @@ const handleApplyUpdate = () => {
           {checking ? (
             <Text style={styles.updatesStatusText}>Проверка обновлений...</Text>
           ) : updateAvailable ? (
-            <TouchableOpacity
+<TouchableOpacity
               style={styles.updateButton}
               onPress={handleApplyUpdate}
+              disabled={applyingUpdate}
               testID="profile-apply-update-button">
-              <Text style={styles.updateButtonText}>
-                Установить обновление
-              </Text>
+              {applyingUpdate ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <Text style={styles.updateButtonText}>
+                  Установить обновление
+                </Text>
+              )}
             </TouchableOpacity>
           ) : (
             <Text style={styles.updatesStatusText}>У вас последняя версия</Text>

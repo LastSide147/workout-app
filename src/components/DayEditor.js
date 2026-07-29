@@ -13,6 +13,7 @@ import {
 import {useFocusEffect} from '@react-navigation/native';
 import {Ionicons} from '@expo/vector-icons';
 import UpdateAvailableIcon from './UpdateAvailableIcon';
+import {Portal} from './ModalPortal';
 import useExercises from '../hooks/useExercises';
 import useSelectedExercises from '../hooks/useSelectedExercises';
 import {DAY_STATUS, STATUS_LABELS} from '../constants/dayStatus';
@@ -32,6 +33,8 @@ import {
   recalculateDayRating,
   deleteDayRating,
   upsertProfileNickname,
+  shouldSkipBulkRecalc,
+
 } from '../services/ratings';
 import {saveWithOfflineFallback} from '../services/offlineSync';
 import {formatDateDisplay, isWithinCurrentWeek} from '../utils/date';
@@ -169,11 +172,27 @@ function ExercisePickerModal({
 }
 
 // Модалка ввода повторений — по центру экрана, не зависит от
-// клавиатуры (не перекрывается ею в любом случае). Закрытие по
-// свайпу/кнопке "назад" — через BackHandler (низкоуровневое системное
-// событие), а не через отслеживание скрытия клавиатуры: последнее
-// оказалось ненадёжным и иногда закрывало модалку раньше, чем
-// успевало сработать нажатие "Подтвердить".
+// клавиатуры (не перекрывается ею в любом случае).
+//
+// ВАЖНО: раньше здесь был встроенный <Modal>. На Android он рисует
+// содержимое в ОТДЕЛЬНОМ системном окне (Android Dialog), у которого
+// своя, недоступная из JS реакция на системную клавиатуру. Когда
+// пользователь нажимал "Сохранить"/"Отмена" при открытой клавиатуре,
+// она начинала закрываться, и синхронно с этим системное окно диалога
+// само сдвигалось — прямо во время касания пальцем. Android в этот
+// момент отменял уже начавшееся нажатие (элемент под пальцем "уехал"),
+// поэтому первое нажатие пропадало впустую, срабатывало только второе.
+// Ни keyboardShouldPersistTaps, ни onPressIn это не лечат — это
+// ограничение самого Dialog-окна на уровне ОС, а не React Native.
+//
+// Поэтому теперь модалка рисуется через свой Portal (см.
+// src/components/ModalPortal.js) — это обычный View поверх экрана, БЕЗ
+// отдельного системного окна. Кнопка и поле ввода живут в одном и том
+// же, никогда не пересоздающемся окне — гонке между закрытием
+// клавиатуры и нажатием кнопки просто неоткуда взяться.
+//
+// Закрытие по кнопке "назад" на Android — через BackHandler
+// (низкоуровневое системное событие), это не поменялось.
 function EditRepsModal({
   visible,
   exercise,
@@ -198,13 +217,30 @@ function EditRepsModal({
     return () => subscription.remove();
   }, [visible, onClose]);
 
+  // Раньше фокус на поле ввода ставился в onShow у <Modal> — у Portal
+  // такого колбэка нет (он не открывает системное окно, значит и
+  // "открытие" отдельно отслеживать не нужно), поэтому ставим фокус
+  // сами при появлении модалки. Задержка та же, что была раньше — даёт
+  // разметке долю секунды на то, чтобы отрисоваться, прежде чем
+  // клавиатура начнёт открываться.
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      onShow={() => setTimeout(() => inputRef.current && inputRef.current.focus(), 50)}>
+    <Portal>
       <View style={styles.editModalOverlay}>
         <TouchableOpacity style={styles.editModalTouchArea} activeOpacity={1} onPress={onClose}>
           <TouchableOpacity activeOpacity={1} style={styles.editModalCard}>
@@ -232,7 +268,7 @@ function EditRepsModal({
                 "Отмена"/"Сохранить". Пустой View слева, когда ссылки
                 нет, нужен, чтобы justifyContent: 'space-between' всё
                 равно прижимал кнопки к правому краю. */}
-           <View style={styles.editModalActionsRow}>
+            <View style={styles.editModalActionsRow}>
               {hasExistingReps ? (
                 <TouchableOpacity
                   style={styles.clearRepsLink}
@@ -265,7 +301,7 @@ function EditRepsModal({
           </TouchableOpacity>
         </TouchableOpacity>
       </View>
-    </Modal>
+    </Portal>
   );
 }
 
@@ -323,14 +359,19 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
   // таймеру, и при уходе с экрана. Если за это время ничего не
   // копилось (pendingRatingTaskRef пуст) — ничего не делает, лишней
   // записи не будет.
-  const flushPendingRatingWrite = () => {
+const flushPendingRatingWrite = () => {
     if (ratingDebounceTimerRef.current) {
       clearTimeout(ratingDebounceTimerRef.current);
       ratingDebounceTimerRef.current = null;
     }
     const pending = pendingRatingTaskRef.current;
     pendingRatingTaskRef.current = null;
-    if (pending) {
+    // Быстрое переключение вкладок туда-сюда вызывает unfocus несколько
+    // раз подряд для одного и того же дня — без проверки сервер отклонял
+    // повторную запись как permission-denied (2-секундный лимит в
+    // правилах). shouldSkipBulkRecalc — та же защита, что уже
+    // используется в recalculateAllRatings/StatisticsScreen.
+    if (pending && !shouldSkipBulkRecalc(userId, dateKey)) {
       runRatingTask(pending).catch(error =>
         console.error('Рейтинг дня синхронизируется позже:', error),
       );
@@ -480,8 +521,14 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
     setIsDirty(true);
     try {
+      // updatedReps — уже посчитанная выше полная карта "упражнение →
+      // повторения" ПОСЛЕ добавления этого подхода. Передаём её целиком
+      // четвёртым аргументом — так workoutDays.js пишет byExercise
+      // документа дня как обычный объект, а не точечным путём (см.
+      // подробное объяснение в setExerciseEntry, почему точечный путь
+      // не сработал).
       const result = await saveWithOfflineFallback(
-        setExerciseEntry(userId, dateKey, exercise, newTotal),
+        setExerciseEntry(userId, dateKey, exercise, newTotal, updatedReps),
       );
       if (result.error) {
         throw result.error;
@@ -512,8 +559,16 @@ export default function DayEditor({userId, dateKey, onSaved, variant = 'log'}) {
 
     setIsDirty(true);
     try {
+      // updatedReps здесь — карта ПОСЛЕ удаления (уже посчитана выше),
+      // передаём её так же целиком, как и в handleAddExercise.
       const result = await saveWithOfflineFallback(
-        deleteExerciseEntry(userId, dateKey, exercise, remainingNames.length > 0),
+        deleteExerciseEntry(
+          userId,
+          dateKey,
+          exercise,
+          remainingNames.length > 0,
+          updatedReps,
+        ),
       );
       if (result.error) {
         throw result.error;

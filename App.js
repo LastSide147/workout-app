@@ -7,6 +7,7 @@ import {subscribeToAuthState} from './src/services/auth';
 import {UpdatesProvider} from './src/context/UpdatesContext';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import CustomTabBar from './src/components/CustomTabBar';
+import {Host} from './src/components/ModalPortal';
 import AuthScreen from './src/screens/AuthScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutLogScreen from './src/screens/WorkoutLogScreen';
@@ -75,34 +76,44 @@ export default function App() {
   }
 
   return (
-    <UpdatesProvider>
-      <SafeAreaProvider>
-        <NavigationContainer theme={navigationTheme}>
-          <StatusBar barStyle="light-content" />
-          <UpdateAvailableModal />
-          <Tab.Navigator
-            screenOptions={{
-              headerShown: false,
-              animation: 'none',
-            }}
-            tabBar={props => <CustomTabBar {...props} />}>
-           <Tab.Screen name="Log" options={{title: 'Тренировка'}}>
-              {() => <WorkoutLogScreen userId={user.uid} />}
-            </Tab.Screen>
-            <Tab.Screen name="History" options={{title: 'История'}}>
-              {() => <WorkoutHistoryScreen userId={user.uid} />}
-            </Tab.Screen>
-            <Tab.Screen name="Statistics" options={{title: 'Статистика'}}>
-              {() => <StatisticsScreen userId={user.uid} />}
-            </Tab.Screen>
-            <Tab.Screen
-              name="Profile"
-              component={ProfileScreen}
-              options={{title: 'Профиль'}}
-            />
-          </Tab.Navigator>
-        </NavigationContainer>
-      </SafeAreaProvider>
-    </UpdatesProvider>
+    // Host — корневой контейнер для своего "портала" (см.
+    // src/components/ModalPortal.js). Модалка ввода повторений
+    // (EditRepsModal в DayEditor.js) рисуется через него, а не через
+    // системный <Modal>, — так у неё нет отдельного Android-окна,
+    // которое раньше конфликтовало с закрытием клавиатуры и "съедало"
+    // первое нажатие на "Сохранить"/"Отмена". Host должен быть как
+    // можно выше по дереву, чтобы портал всегда перекрывал весь экран
+    // целиком, независимо от того, на какой вкладке он открыт.
+    <Host>
+      <UpdatesProvider>
+        <SafeAreaProvider>
+          <NavigationContainer theme={navigationTheme}>
+            <StatusBar barStyle="light-content" />
+            <UpdateAvailableModal />
+            <Tab.Navigator
+              screenOptions={{
+                headerShown: false,
+                animation: 'none',
+              }}
+              tabBar={props => <CustomTabBar {...props} />}>
+             <Tab.Screen name="Log" options={{title: 'Тренировка'}}>
+                {() => <WorkoutLogScreen userId={user.uid} />}
+              </Tab.Screen>
+              <Tab.Screen name="History" options={{title: 'История'}}>
+                {() => <WorkoutHistoryScreen userId={user.uid} />}
+              </Tab.Screen>
+              <Tab.Screen name="Statistics" options={{title: 'Статистика'}}>
+                {() => <StatisticsScreen userId={user.uid} />}
+              </Tab.Screen>
+              <Tab.Screen
+                name="Profile"
+                component={ProfileScreen}
+                options={{title: 'Профиль'}}
+              />
+            </Tab.Navigator>
+          </NavigationContainer>
+        </SafeAreaProvider>
+      </UpdatesProvider>
+    </Host>
   );
 } 

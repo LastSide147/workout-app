@@ -1,6 +1,6 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, StyleSheet, Modal, Alert} from 'react-native';import {useUpdatesContext} from '../context/UpdatesContext';
-import colors from '../theme/colors';
+import {View, Text, TouchableOpacity, StyleSheet, Modal, Alert, ActivityIndicator} from 'react-native';
+import {useUpdatesContext} from '../context/UpdatesContext';import colors from '../theme/colors';
 import typography from '../theme/typography';
 
 // Модалка "доступно обновление" — один раз при входе в приложение,
@@ -10,11 +10,21 @@ import typography from '../theme/typography';
 // вёрстку.
 export default function UpdateAvailableModal() {
   const {showUpdateModal, dismissUpdateModal, applyUpdate} = useUpdatesContext();
+  // Скачивание (fetchUpdateAsync) может идти заметное время, а после
+  // него приложение просто перезапускается само (reloadAsync) — раньше
+  // между нажатием и этим моментом не было вообще никакой индикации,
+  // из-за чего казалось, что кнопка "не сработала". applying просто
+  // включает спиннер вместо текста и блокирует обе кнопки на это время;
+  // сбрасывать его в случае успеха не нужно — приложение и так вот-вот
+  // перезапустится.
+  const [applying, setApplying] = React.useState(false);
 
   const handleApply = async () => {
+    setApplying(true);
     try {
       await applyUpdate();
     } catch (error) {
+      setApplying(false);
       Alert.alert('Не удалось скачать обновление', String(error));
     }
   };
@@ -24,7 +34,7 @@ export default function UpdateAvailableModal() {
       visible={showUpdateModal}
       transparent
       animationType="fade"
-      onRequestClose={dismissUpdateModal}>
+      onRequestClose={applying ? undefined : dismissUpdateModal}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>Доступно обновление</Text>
@@ -35,13 +45,19 @@ export default function UpdateAvailableModal() {
           <TouchableOpacity
             style={styles.updateButton}
             onPress={handleApply}
+            disabled={applying}
             testID="update-modal-apply-button">
-            <Text style={styles.updateButtonText}>Обновить</Text>
+            {applying ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Text style={styles.updateButtonText}>Обновить</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.laterButton}
             onPress={dismissUpdateModal}
+            disabled={applying}
             testID="update-modal-later-button">
             <Text style={styles.laterButtonText}>Позже</Text>
           </TouchableOpacity>

@@ -24,6 +24,10 @@ export async function resendVerificationEmail() {
   }
 }
 
+export async function sendPasswordReset(email) {
+  await auth().sendPasswordResetEmail(email);
+}
+
 // Firebase не обновляет emailVerified автоматически — нужно явно
 // перезапросить данные пользователя с сервера через reload()
 export async function reloadCurrentUser() {

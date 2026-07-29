@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {subscribeToWorkoutDays} from '../services/workoutDays';
-import {fetchLeaderboard, recalculateDayRating} from '../services/ratings';
-import {getProfileDemographics} from '../services/profile';
+import {fetchLeaderboard, recalculateDayRating, shouldSkipBulkRecalc} from '../services/ratings';import {getProfileDemographics} from '../services/profile';
 import {loadStatisticsFilters, saveStatisticsFilters} from '../services/statisticsFilters';
 import {getDateKey} from '../utils/date';
 import {calculateAge} from '../utils/age';
@@ -527,6 +526,40 @@ export default function StatisticsScreen({userId}) {
   // список.
   const exerciseNames = allExercises.map(item => item.displayName);
 
+  // ВАЖНО: должна быть объявлена ДО loggedExerciseNames ниже (та её
+  // сразу использует). Раньше liveTodayKey была объявлена гораздо ниже
+  // по файлу (рядом с personalStartKey) — из-за этого здесь она
+  // использовалась раньше своего объявления и превращалась в undefined,
+  // из-за чего days[liveTodayKey] всегда было пустым, а фильтр по
+  // упражнению в рейтинге — всегда показывал только "Все упражнения".
+  // "Мои упражнения" при этом работали нормально: тот блок кода
+  // находится НИЖЕ настоящего объявления liveTodayKey, там бага не было.
+  const liveTodayKey = getDateKey(new Date());
+
+  const loggedExerciseNames = Object.keys(
+    (days[liveTodayKey] && days[liveTodayKey].byExercise) || {},
+  );
+  // Одиночные упражнения верхнего уровня — оставляем только те, что
+  // сегодня реально введены.
+  const loggedExercises = exercises.filter(item =>
+    loggedExerciseNames.includes(item.name),
+  );
+
+  // Внутри папок — та же логика: показываем только выполненные сегодня
+  // упражнения, а саму папку — только если внутри неё есть хотя бы одно
+  // такое упражнение (иначе в списке была бы пустая папка, разворачивать
+  // которую незачем).
+  const loggedFolderExercises = {};
+  folders.forEach(folder => {
+    loggedFolderExercises[folder.id] = (folderExercises[folder.id] || []).filter(item =>
+      loggedExerciseNames.includes(item.displayName),
+    );
+  });
+  const loggedFolders = folders.filter(
+    folder => loggedFolderExercises[folder.id].length > 0,
+  );
+
+
   const [totals, setTotals] = useState({});
   const [overallTotal, setOverallTotal] = useState(0);
   const [loadingTotals, setLoadingTotals] = useState(true);
@@ -622,12 +655,15 @@ export default function StatisticsScreen({userId}) {
       return;
     }
     pendingExerciseFilterRef.current = undefined;
-    if (pending === ALL_EXERCISES_OPTION || exerciseNames.includes(pending)) {
+    // Сверяем не со всем каталогом, а с тем, что выполнено СЕГОДНЯ —
+    // тем же списком, что ограничивает и саму модалку выбора (см.
+    // loggedExerciseNames выше). Иначе можно было бы тихо восстановить
+    // вчерашний выбор, которого сегодня уже нет среди вариантов.
+    if (pending === ALL_EXERCISES_OPTION || loggedExerciseNames.includes(pending)) {
       setLeaderboardExercise(pending);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtersRestored, loadingExercises, exerciseNames]);
-
+  }, [filtersRestored, loadingExercises, days, todayKey]);
   // Сохраняем при каждом изменении любого из четырёх фильтров — но
   // только после того, как восстановление выше завершилось. Без этого
   // условия самый первый рендер (со значениями по умолчанию, ещё до
@@ -697,7 +733,6 @@ export default function StatisticsScreen({userId}) {
   }, [userId]);
 
   const personalStartKey = getStartKeyForPeriod(personalPeriod, new Date());
-
   // Раньше здесь на каждый выбранный период (день/неделя/месяц/год)
   // отдельно ходили в базу за entries КАЖДОГО подходящего дня —
   // getDayEntries(userId, dateKey) для каждого dateKey из диапазона.
@@ -720,10 +755,10 @@ export default function StatisticsScreen({userId}) {
       return;
     }
 
-    const matchingDateKeys = Object.keys(days).filter(
+  const matchingDateKeys = Object.keys(days).filter(
       dateKey =>
         dateKey >= personalStartKey &&
-        dateKey <= todayKey &&
+        dateKey <= liveTodayKey &&
         days[dateKey].hasExercises,
     );
 
@@ -743,7 +778,7 @@ export default function StatisticsScreen({userId}) {
     setOverallTotal(newOverallTotal);
     setTotalsPeriod(personalPeriod);
     setLoadingTotals(false);
-  }, [userId, days, personalStartKey, personalPeriod, todayKey]);
+  }, [userId, days, personalStartKey, personalPeriod, liveTodayKey]);
 
   // Ограничение по периоду касается ТОЛЬКО просмотра конкретного
   // упражнения (выбор из выпадающего списка) — там доступен только
@@ -814,9 +849,26 @@ export default function StatisticsScreen({userId}) {
     useCallback(() => {
       let cancelled = false;
 
-      async function syncTodayThenLoadLeaderboard() {
+async function syncTodayThenLoadLeaderboard() {
         const todayHasWorkout = Boolean(days[todayKey] && days[todayKey].hasExercises);
-        if (userId && !loadingExercises && todayHasWorkout) {
+        // shouldSkipBulkRecalc — та же защита от повторной записи в один
+        // и тот же документ рейтинга чаще, чем раз в 5 секунд (см.
+        // подробное объяснение рядом с её определением в ratings.js).
+        // Раньше ею была прикрыта только recalculateAllRatings
+        // (WorkoutLogScreen/WorkoutHistoryScreen), а прямой вызов
+        // recalculateDayRating отсюда — нет. Это и вызывало
+        // [firestore/permission-denied]: при быстром повторном заходе на
+        // "Статистику" (или смене фильтра, из-за которой пересоздаётся
+        // loadLeaderboard) сервер отклонял слишком частую запись того же
+        // дня. Карта задержки общая (ключ userId:dateKey) — если тот же
+        // день уже недавно пересчитан из "Тренировки"/"Истории", здесь
+        // тоже просто пропустим лишнюю попытку, а не получим ошибку.
+        if (
+          userId &&
+          !loadingExercises &&
+          todayHasWorkout &&
+          !shouldSkipBulkRecalc(userId, todayKey)
+        ) {
           try {
             await recalculateDayRating(userId, todayKey, exerciseCoefficients);
           } catch (error) {
@@ -1058,12 +1110,12 @@ export default function StatisticsScreen({userId}) {
         folderExercises={folderExercises}
       />
 
-      <ExerciseFilterModal
+<ExerciseFilterModal
         visible={exerciseFilterVisible}
         onClose={() => setExerciseFilterVisible(false)}
-        exercises={exercises}
-        folders={folders}
-        folderExercises={folderExercises}
+        exercises={loggedExercises}
+        folders={loggedFolders}
+        folderExercises={loggedFolderExercises}
         selected={leaderboardExercise}
         onSelect={handleSelectLeaderboardExercise}
       />

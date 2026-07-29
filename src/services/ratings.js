@@ -530,8 +530,7 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
 const recentBulkRecalcAttempts = new Map();
 const BULK_RECALC_COOLDOWN_MS = 5000;
 
-function shouldSkipBulkRecalc(userId, dateKey) {
-  const key = `${userId}:${dateKey}`;
+export function shouldSkipBulkRecalc(userId, dateKey) {  const key = `${userId}:${dateKey}`;
   const lastAttempt = recentBulkRecalcAttempts.get(key);
   const now = Date.now();
   if (lastAttempt && now - lastAttempt < BULK_RECALC_COOLDOWN_MS) {

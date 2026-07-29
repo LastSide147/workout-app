@@ -12,6 +12,7 @@ import {
   registerWithEmail,
   loginWithEmail,
   resendVerificationEmail,
+  sendPasswordReset,
   reloadCurrentUser,
   logout,
   getAuthErrorMessage,
@@ -23,6 +24,12 @@ function isValidEmail(value) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return regex.test(value);
 }
+
+// Одна и та же фраза используется во всех трёх местах, где отправляется
+// письмо (регистрация, повторная отправка, сброс пароля) — чтобы текст
+// не разъезжался по формулировке и его нужно было менять в одном месте.
+const SPAM_FOLDER_NOTE =
+  'Если письма нет во "Входящих" - проверьте папку "Спам". Откройте ссылку для подтверждения регистрации.';
 
 export default function AuthScreen({pendingVerification, onVerified}) {
   const [mode, setMode] = useState('login');
@@ -53,7 +60,7 @@ export default function AuthScreen({pendingVerification, onVerified}) {
         await registerWithEmail(trimmedEmail, password);
         Alert.alert(
           'Проверьте почту',
-          'Мы отправили письмо для подтверждения email',
+          'Письмо для подтверждения отправлено на email' + SPAM_FOLDER_NOTE,
         );
       } else {
         await loginWithEmail(trimmedEmail, password);
@@ -79,12 +86,44 @@ export default function AuthScreen({pendingVerification, onVerified}) {
     }
   };
 
-  const handleResend = async () => {
+ const handleResend = async () => {
     try {
       await resendVerificationEmail();
-      Alert.alert('Готово', 'Письмо отправлено повторно');
+      Alert.alert('Готово', 'Письмо отправлено повторно. ' + SPAM_FOLDER_NOTE);
     } catch (error) {
       Alert.alert('Ошибка', getAuthErrorMessage(error));
+    }
+  };
+
+  // Письмо для сброса пароля уходит на тот же email, что уже введён в
+  // поле выше — отдельного экрана/поля для этого не делаем, это то же
+  // самое поле, что и для входа/регистрации.
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
+      Alert.alert(
+        'Введите email',
+        'Сначала введите свой email в поле выше, затем нажмите "Забыли пароль?" ещё раз.',
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPasswordReset(trimmedEmail);
+      Alert.alert(
+        'Письмо отправлено',
+        'Мы отправили ссылку для смены пароля на ' + trimmedEmail + '. ' + SPAM_FOLDER_NOTE,
+      );
+    } catch (error) {
+      if (error && error.code === 'auth/user-not-found') {
+        Alert.alert('Email не найден', 'Аккаунт с таким email не зарегистрирован.');
+      } else {
+        Alert.alert('Ошибка', getAuthErrorMessage(error));
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -93,9 +132,10 @@ export default function AuthScreen({pendingVerification, onVerified}) {
       <View style={styles.container}>
         <Text style={styles.title}>Подтвердите почту</Text>
         <Text style={styles.description}>
-          Мы отправили письмо со ссылкой подтверждения. Перейдите по ней, затем
+          Письмо для подтверждения отправлено на email. Перейдите по ней, затем
           нажмите кнопку ниже.
         </Text>
+                <Text style={styles.spamNote}>{SPAM_FOLDER_NOTE}</Text>
 
         <TouchableOpacity
           style={styles.primaryButton}
@@ -157,6 +197,16 @@ export default function AuthScreen({pendingVerification, onVerified}) {
           />
         </TouchableOpacity>
       </View>
+
+       {mode === 'login' ? (
+        <TouchableOpacity
+          style={styles.forgotPasswordButton}
+          onPress={handleForgotPassword}
+          disabled={loading}
+          testID="auth-forgot-password-button">
+          <Text style={styles.linkText}>Забыли пароль?</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <TouchableOpacity
         style={styles.primaryButton}
@@ -224,4 +274,14 @@ const styles = StyleSheet.create({
   primaryButtonText: {...typography.button, color: colors.white},
   linkButton: {marginTop: 16, alignItems: 'center'},
   linkText: {...typography.buttonSmall, fontSize: 14, color: colors.primary},
+
+  forgotPasswordButton: {alignItems: 'flex-end', marginBottom: 4},
+  spamNote: {
+    ...typography.caption,
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: -12,
+    marginBottom: 24,
+  },
 });
