@@ -22,15 +22,14 @@
     "package": "com.workoutapp",
     "googleServicesFile": "./google-services.json",
     "softwareKeyboardLayoutMode": "resize"
-
-
   },
   "ios": {
     "bundleIdentifier": "com.workoutapp",
-  "googleServicesFile": "./GoogleService-Info.plist"
+    "googleServicesFile": "./GoogleService-Info.plist"
   },
   "plugins": [
     "expo-updates",
-    "@react-native-firebase/app"
+    "@react-native-firebase/app",
+    "@react-native-firebase/app-check"
   ]
 }

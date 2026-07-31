@@ -7,13 +7,16 @@
       "developmentClient": true,
       "distribution": "internal"
     },
-    "preview": {
-      "distribution": "internal",
-      "channel": "preview",
-      "android": {
-        "buildType": "apk"
-      }
-    },
+"preview": {
+  "distribution": "internal",
+  "channel": "preview",
+  "android": {
+    "buildType": "apk"
+  },
+  "env": {
+    "EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN": "202C484B-0B59-42B2-A1BB-3DF4AE270816"
+  }
+},
     "production": {
       "channel": "production"
     }

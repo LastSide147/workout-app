@@ -4,6 +4,7 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
+import {initAppCheck} from './src/services/appCheck';
 import {UpdatesProvider} from './src/context/UpdatesContext';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import CustomTabBar from './src/components/CustomTabBar';
@@ -14,6 +15,9 @@ import WorkoutLogScreen from './src/screens/WorkoutLogScreen';
 import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
 import colors from './src/theme/colors';
+
+initAppCheck();
+
 
 const Tab = createBottomTabNavigator();
 
