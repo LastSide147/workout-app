@@ -25,6 +25,33 @@ function isValidEmail(value) {
   return regex.test(value);
 }
 
+function getPasswordChecks(password) {
+  return {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    digit: /[0-9]/.test(password),
+  };
+}
+
+// Одна строка списка требований — галочка/крестик + подпись.
+// Вынесена отдельным компонентом, чтобы не повторять одну и ту же
+// разметку четыре раза.
+function PasswordRequirementRow({met, label}) {
+  return (
+    <View style={styles.requirementRow}>
+      <Ionicons
+        name={met ? 'checkmark-circle' : 'ellipse-outline'}
+        size={16}
+        color={met ? colors.success : colors.textMuted}
+      />
+      <Text style={[styles.requirementText, met && styles.requirementTextMet]}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 // Одна и та же фраза используется во всех трёх местах, где отправляется
 // письмо (регистрация, повторная отправка, сброс пароля) — чтобы текст
 // не разъезжался по формулировке и его нужно было менять в одном месте.
@@ -37,6 +64,7 @@ export default function AuthScreen({pendingVerification, onVerified}) {
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const passwordChecks = getPasswordChecks(password);
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim();
@@ -198,6 +226,15 @@ export default function AuthScreen({pendingVerification, onVerified}) {
         </TouchableOpacity>
       </View>
 
+      {mode === 'register' ? (
+        <View style={styles.passwordRequirements} testID="auth-password-requirements">
+          <PasswordRequirementRow met={passwordChecks.length} label="Минимум 8 символов" />
+          <PasswordRequirementRow met={passwordChecks.uppercase} label="Заглавная буква (A-Z)" />
+          <PasswordRequirementRow met={passwordChecks.lowercase} label="Строчная буква (a-z)" />
+          <PasswordRequirementRow met={passwordChecks.digit} label="Цифра (0-9)" />
+        </View>
+      ) : null}
+
        {mode === 'login' ? (
         <TouchableOpacity
           style={styles.forgotPasswordButton}
@@ -276,7 +313,7 @@ const styles = StyleSheet.create({
   linkText: {...typography.buttonSmall, fontSize: 14, color: colors.primary},
 
   forgotPasswordButton: {alignItems: 'flex-end', marginBottom: 4},
-  spamNote: {
+spamNote: {
     ...typography.caption,
     fontSize: 13,
     color: colors.textMuted,
@@ -284,4 +321,8 @@ const styles = StyleSheet.create({
     marginTop: -12,
     marginBottom: 24,
   },
+  passwordRequirements: {marginBottom: 16},
+  requirementRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 4},
+  requirementText: {...typography.caption, fontSize: 13, color: colors.textMuted, marginLeft: 6},
+  requirementTextMet: {color: colors.success},
 });

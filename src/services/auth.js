@@ -52,10 +52,12 @@ export function getAuthErrorMessage(error) {
       return 'Некорректный email';
     case 'auth/weak-password':
       return 'Пароль слишком простой (минимум 6 символов)';
-    case 'auth/user-not-found':
+case 'auth/user-not-found':
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
       return 'Неверный email или пароль';
+    case 'auth/password-does-not-meet-requirements':
+      return 'Минимум 8 символов, содержит заглавные и строчные буквы, цифры';
     default:
       return 'Ошибка: ' + (error ? error.message : 'неизвестная');
   }

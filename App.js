@@ -5,6 +5,7 @@ import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {subscribeToAuthState} from './src/services/auth';
 import {initAppCheck} from './src/services/appCheck';
+import {initCrashlytics, setCrashlyticsUser} from './src/services/crashlytics';
 import {UpdatesProvider} from './src/context/UpdatesContext';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import CustomTabBar from './src/components/CustomTabBar';
@@ -17,6 +18,7 @@ import StatisticsScreen from './src/screens/StatisticsScreen';
 import colors from './src/theme/colors';
 
 initAppCheck();
+initCrashlytics();
 
 
 const Tab = createBottomTabNavigator();
@@ -39,11 +41,12 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [emailVerified, setEmailVerified] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
     const unsubscribe = subscribeToAuthState(newUser => {
       setUser(newUser);
       setEmailVerified(newUser ? newUser.emailVerified : false);
       setInitializing(false);
+      setCrashlyticsUser(newUser ? newUser.uid : null);
     });
     return unsubscribe;
   }, []);
