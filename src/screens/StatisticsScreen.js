@@ -21,6 +21,7 @@ import colors from '../theme/colors';
 import typography from '../theme/typography';
 import {getRepsIntensityColor} from '../constants/repsIntensity';
 import UpdateAvailableIcon from '../components/UpdateAvailableIcon';
+import {getCountryLabel} from '../utils/location';
 import {
   ALL_AGES_OPTION,
   ALL_WEIGHTS_OPTION,
@@ -29,13 +30,16 @@ import {
   EXACT_MATCH_LABEL,
   getAgeToleranceYears,
   getWeightToleranceKg,
+  ALL_LOCATIONS_OPTION,
+  CITY_FILTER_OPTION,
+  COUNTRY_FILTER_OPTION,
+  LOCATION_FILTER_OPTIONS,
+  getLocationFilterMode,
 } from '../constants/demographicsFilters';
-
 const PERIODS = [
   {key: 'day', label: 'День'},
   {key: 'week', label: 'Неделя'},
   {key: 'month', label: 'Месяц'},
-  {key: '3months', label: '3 месяца'},
   {key: 'year', label: 'Год'},
 ];
 
@@ -59,16 +63,43 @@ function buildFilterOptions(rawOptions, ownValue) {
   }));
 }
 
-// Текст на самой (свёрнутой) кнопке-фильтре — короче, чем в списке:
-// "Без ограничений" превращается в "—" (иначе не помещается в узкую
-// кнопку, когда в одном ряду сразу три фильтра), а "точное совпадение"
-// так же, как и в списке, показывает реальное число.
-function getFilterButtonLabel(selectedValue, allOptionLabel, ownValue) {
+// Показывает название кнопки-фильтра в свёрнутом виде (без открытия
+// модалки). Если выбрано "Без ограничений" — показываем короткое
+// имя поля (например, "Возраст"), а не пустой прочерк. Если выбрано
+// "Точно как у меня" — подставляем реальное число (возраст/вес).
+// Иначе (выбран конкретный диапазон, например "±5 лет") — показываем
+// его как есть.
+function getFilterButtonLabel(selectedValue, allOptionLabel, ownValue, placeholderLabel) {
   if (selectedValue === allOptionLabel) {
-    return '—';
+    return placeholderLabel;
   }
   if (selectedValue === EXACT_MATCH_LABEL && typeof ownValue === 'number') {
     return String(ownValue);
+  }
+  return selectedValue;
+}
+
+// То же самое, что buildFilterOptions/getFilterButtonLabel выше, но для// города/страны: вместо общих подписей "Мой город"/"Моя страна"
+// показываем то, что реально стоит в профиле ("Воронеж"/"Россия") —
+// value (по которому работает вся логика фильтра) при этом не
+// меняется, меняется только то, что видно пользователю.
+function buildLocationFilterOptions(ownCity, ownCountryLabel) {
+  return [
+    {value: ALL_LOCATIONS_OPTION, label: ALL_LOCATIONS_OPTION},
+    {value: COUNTRY_FILTER_OPTION, label: ownCountryLabel || COUNTRY_FILTER_OPTION},
+    {value: CITY_FILTER_OPTION, label: ownCity || CITY_FILTER_OPTION},
+  ];
+}
+
+function getLocationFilterButtonLabel(selectedValue, ownCity, ownCountryLabel, placeholderLabel) {
+  if (selectedValue === ALL_LOCATIONS_OPTION) {
+    return placeholderLabel;
+  }
+  if (selectedValue === CITY_FILTER_OPTION) {
+    return ownCity || CITY_FILTER_OPTION;
+  }
+  if (selectedValue === COUNTRY_FILTER_OPTION) {
+    return ownCountryLabel || COUNTRY_FILTER_OPTION;
   }
   return selectedValue;
 }
@@ -108,9 +139,6 @@ function getStartKeyForPeriod(periodKey, referenceDate) {
     }
     case 'month': {
       return getDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
-    }
-    case '3months': {
-      return getDateKey(new Date(date.getFullYear(), date.getMonth() - 2, 1));
     }
     case 'year': {
       return getDateKey(new Date(date.getFullYear(), 0, 1));
@@ -575,10 +603,12 @@ export default function StatisticsScreen({userId}) {
   // Фильтр по возрасту и весу — работает вместе с фильтром по
   // упражнению и с периодом, ни один из них не выключает другие. Пока
   // выбрано значение "Любой" — на результат не влияет.
-  const [ageFilter, setAgeFilter] = useState(ALL_AGES_OPTION);
+const [ageFilter, setAgeFilter] = useState(ALL_AGES_OPTION);
   const [weightFilter, setWeightFilter] = useState(ALL_WEIGHTS_OPTION);
   const [ageFilterVisible, setAgeFilterVisible] = useState(false);
   const [weightFilterVisible, setWeightFilterVisible] = useState(false);
+  const [locationFilter, setLocationFilter] = useState(ALL_LOCATIONS_OPTION);
+  const [locationFilterVisible, setLocationFilterVisible] = useState(false);
 
   // Восстановление сохранённых фильтров Статистики (период рейтинга,
   // допуск по возрасту, допуск по весу, упражнение) — см.
@@ -623,11 +653,13 @@ export default function StatisticsScreen({userId}) {
         if (AGE_FILTER_OPTIONS.includes(saved.ageFilter)) {
           setAgeFilter(saved.ageFilter);
         }
-        if (WEIGHT_FILTER_OPTIONS.includes(saved.weightFilter)) {
+if (WEIGHT_FILTER_OPTIONS.includes(saved.weightFilter)) {
           setWeightFilter(saved.weightFilter);
         }
-        pendingExerciseFilterRef.current = saved.leaderboardExercise || null;
-      } else {
+        if (LOCATION_FILTER_OPTIONS.includes(saved.locationFilter)) {
+          setLocationFilter(saved.locationFilter);
+        }
+        pendingExerciseFilterRef.current = saved.leaderboardExercise || null;      } else {
         pendingExerciseFilterRef.current = null;
       }
 
@@ -673,23 +705,25 @@ export default function StatisticsScreen({userId}) {
     if (!filtersRestored) {
       return;
     }
-    saveStatisticsFilters({
+saveStatisticsFilters({
       leaderboardPeriod,
       ageFilter,
       weightFilter,
       leaderboardExercise,
+      locationFilter,
     });
-  }, [filtersRestored, leaderboardPeriod, ageFilter, weightFilter, leaderboardExercise]);
-
+  }, [filtersRestored, leaderboardPeriod, ageFilter, weightFilter, leaderboardExercise, locationFilter]);
   // Собственные возраст/вес пользователя (из профиля) — нужны только
   // для того, чтобы решить, доступны ли вообще кнопки фильтра ниже.
   // Фильтровать чужие данные, не заполнив свои — нелогично для
   // пользователя, поэтому кнопки заблокированы, пока в профиле нет
   // даты рождения/веса.
-  const [ownDemographics, setOwnDemographics] = useState({
+const [ownDemographics, setOwnDemographics] = useState({
     birthYear: null,
     birthMonth: null,
     weight: null,
+    countryCode: null,
+    city: null,
   });
 
   useFocusEffect(
@@ -717,9 +751,9 @@ export default function StatisticsScreen({userId}) {
     }, [userId]),
   );
 
-  const hasAgeFilled = Boolean(ownDemographics.birthYear && ownDemographics.birthMonth);
+const hasAgeFilled = Boolean(ownDemographics.birthYear && ownDemographics.birthMonth);
   const hasWeightFilled = typeof ownDemographics.weight === 'number';
-
+  const hasLocationFilled = Boolean(ownDemographics.countryCode && ownDemographics.city);
   // Свой точный возраст (число, не диапазон) — фильтр относительный
   // ("±10 лет"), поэтому граница считается от этого числа, а не от
   // общего для всех диапазона. null, пока дата рождения не заполнена —
@@ -798,11 +832,14 @@ export default function StatisticsScreen({userId}) {
       // граница диапазона считается от ownAge/ownDemographics.weight,
       // собственных значений смотрящего (см. пояснение в
       // fetchLeaderboard в services/ratings.js).
-      const demographicFilter = {
+const demographicFilter = {
         ageToleranceYears: getAgeToleranceYears(ageFilter),
         viewerAge: ownAge,
         weightToleranceKg: getWeightToleranceKg(weightFilter),
         viewerWeight: ownDemographics.weight,
+        locationMode: getLocationFilterMode(locationFilter),
+        viewerCountryCode: ownDemographics.countryCode,
+        viewerCity: ownDemographics.city,
       };
       const result = await fetchLeaderboard(
         effectiveLeaderboardPeriod,
@@ -821,13 +858,16 @@ export default function StatisticsScreen({userId}) {
     // пересоздаётся, и тот же useFocusEffect ниже (у него
     // loadLeaderboard тоже в зависимостях) сразу перезапускает загрузку
     // — так же, как уже работает фильтр по упражнению.
-  }, [
+}, [
     effectiveLeaderboardPeriod,
     leaderboardExercise,
     ageFilter,
     weightFilter,
     ownAge,
     ownDemographics.weight,
+    locationFilter,
+    ownDemographics.countryCode,
+    ownDemographics.city,
   ]);
 
   useEffect(() => {
@@ -908,9 +948,12 @@ async function syncTodayThenLoadLeaderboard() {
   // возраст/вес (см. buildFilterOptions выше). Пересчитываются на
   // каждый рендер — это просто map по короткому (до 7 пунктов) массиву,
   // не запрос к БД, дорогим это не является.
-  const ageFilterOptions = buildFilterOptions(AGE_FILTER_OPTIONS, ownAge);
+const ageFilterOptions = buildFilterOptions(AGE_FILTER_OPTIONS, ownAge);
   const weightFilterOptions = buildFilterOptions(WEIGHT_FILTER_OPTIONS, ownDemographics.weight);
-
+  // Название страны по коду ("RU" → "Россия") — то же самое, что
+  // показывается в профиле (getCountryLabel уже используется там же).
+  const ownCountryLabel = getCountryLabel(ownDemographics.countryCode);
+  const locationFilterOptions = buildLocationFilterOptions(ownDemographics.city, ownCountryLabel);
   return (
     <ScreenContainer>
 <View style={styles.titleRow}>
@@ -997,16 +1040,37 @@ async function syncTodayThenLoadLeaderboard() {
           />
         )}
 
-        {/* Три фильтра — возраст, вес, упражнение — в один ряд, поровну
-            по ширине (flex: 1 у каждого), чтобы сэкономить место по
-            высоте. На сами модалки выбора (SimpleFilterModal/
-            ExerciseFilterModal ниже) это никак не влияет — открываются
-            и выглядят как прежде, меняется только вид свёрнутой
-            кнопки. "Без ограничений"/"Все упражнения" в свёрнутом виде
-            не помещаются в узкую кнопку — вместо этого показываем
-            "—" (см. getFilterButtonLabel выше по файлу); в самом
-            списке при открытии подпись остаётся полной. */}
+{/* Раньше локация стояла отдельной полноширинной строкой — занимала
+            слишком много места. Теперь она первая кнопка в общем ряду
+            фильтров, вместе с возраст/вес/упражнение — стало 4 кнопки
+            в одном ряду вместо отдельной строки + ряда из трёх. */}
         <View style={styles.demographicsFilterRow}>
+          <TouchableOpacity
+            style={[
+              styles.demographicsFilterButton,
+              styles.demographicsFilterButtonSpacing,
+              !hasLocationFilled && styles.demographicsFilterButtonDisabled,
+            ]}
+            onPress={() => {
+              if (!hasLocationFilled) {
+                Alert.alert(
+                  'Фильтр недоступен',
+                  'Чтобы фильтровать рейтинг по городу или стране, сначала укажите страну и город в профиле.',
+                );
+                return;
+              }
+              setLocationFilterVisible(true);
+            }}
+            testID="statistics-location-filter-button">
+            <Text
+              style={[
+                styles.exerciseFilterButtonText,
+                !hasLocationFilled && styles.demographicsFilterButtonTextDisabled,
+              ]}
+              numberOfLines={1}>
+              {getLocationFilterButtonLabel(locationFilter, ownDemographics.city, ownCountryLabel, 'Локация')}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.demographicsFilterButton,
@@ -1030,9 +1094,9 @@ async function syncTodayThenLoadLeaderboard() {
                 !hasAgeFilled && styles.demographicsFilterButtonTextDisabled,
               ]}
               numberOfLines={1}>
-              {getFilterButtonLabel(ageFilter, ALL_AGES_OPTION, ownAge)}
+              {getFilterButtonLabel(ageFilter, ALL_AGES_OPTION, ownAge, 'Возраст')}
             </Text>
-            <Text style={styles.exerciseFilterArrow}>▾</Text>
+
           </TouchableOpacity>
           <TouchableOpacity
             style={[
@@ -1057,18 +1121,18 @@ async function syncTodayThenLoadLeaderboard() {
                 !hasWeightFilled && styles.demographicsFilterButtonTextDisabled,
               ]}
               numberOfLines={1}>
-              {getFilterButtonLabel(weightFilter, ALL_WEIGHTS_OPTION, ownDemographics.weight)}
+              {getFilterButtonLabel(weightFilter, ALL_WEIGHTS_OPTION, ownDemographics.weight, 'Вес')}
             </Text>
-            <Text style={styles.exerciseFilterArrow}>▾</Text>
+
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.demographicsFilterButton}
             onPress={() => setExerciseFilterVisible(true)}
             testID="statistics-exercise-filter-button">
             <Text style={styles.exerciseFilterButtonText} numberOfLines={1}>
-              {leaderboardExercise === ALL_EXERCISES_OPTION ? '—' : leaderboardExercise}
+              {leaderboardExercise === ALL_EXERCISES_OPTION ? 'Упр.' : leaderboardExercise}
             </Text>
-            <Text style={styles.exerciseFilterArrow}>▾</Text>
+
           </TouchableOpacity>
         </View>
 
@@ -1130,7 +1194,7 @@ async function syncTodayThenLoadLeaderboard() {
         onSelect={setAgeFilter}
       />
 
-      <SimpleFilterModal
+<SimpleFilterModal
         visible={weightFilterVisible}
         onClose={() => setWeightFilterVisible(false)}
         title="Фильтр по весу"
@@ -1138,6 +1202,16 @@ async function syncTodayThenLoadLeaderboard() {
         options={weightFilterOptions}
         selected={weightFilter}
         onSelect={setWeightFilter}
+      />
+
+      <SimpleFilterModal
+        visible={locationFilterVisible}
+        onClose={() => setLocationFilterVisible(false)}
+        title="Фильтр по городу/стране"
+        subtitle={hasLocationFilled ? `Ваш город: ${ownDemographics.city}` : null}
+        options={locationFilterOptions}
+        selected={locationFilter}
+        onSelect={setLocationFilter}
       />
 
       <LeaderboardModal
@@ -1312,14 +1386,14 @@ titleRow: {
   demographicsFilterButton: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.background,
     borderRadius: 16,
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 5,
   },
   demographicsFilterButtonSpacing: {marginRight: 6},
   // Пока в профиле не заполнены возраст/вес — кнопка визуально
@@ -1339,7 +1413,7 @@ titleRow: {
   },
   showAllButtonText: {...typography.buttonSmall, color: colors.textPrimary},
 
-  overlay: {
+overlay: {
     flex: 1,
     backgroundColor: colors.overlay,
     justifyContent: 'center',

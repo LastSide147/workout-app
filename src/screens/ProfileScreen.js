@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View,
   Text,
@@ -21,12 +21,18 @@ import {useUpdatesContext} from '../context/UpdatesContext';
 import {rebuildAllBucketsFromHistory} from '../services/ratings';
 import {getProfileDemographics, saveProfileDemographics} from '../services/profile';
 import {BIRTH_MONTHS, getBirthYearOptions, calculateAge} from '../utils/age';
+import {getCountryOptions, getCityOptions, getCountryLabel} from '../utils/location';
 import SimpleListPickerModal from '../components/SimpleListPickerModal';
+import SearchableListPickerModal from '../components/SearchableListPickerModal';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 import packageJson from '../../package.json';
 
 const BIRTH_YEAR_OPTIONS = getBirthYearOptions();
+// Страны не меняются во время работы экрана (в отличие от списка
+// городов, который зависит от выбранной страны) — считаем один раз на
+// модуль, как и BIRTH_YEAR_OPTIONS выше.
+const COUNTRY_OPTIONS = getCountryOptions();
 
 
 export default function ProfileScreen() {
@@ -50,8 +56,21 @@ export default function ProfileScreen() {
   // борясь с NaN на каждом нажатии. Числом (или null, если пусто) он
   // становится только в момент сохранения — см. handleSaveDemographics.
   const [weightInput, setWeightInput] = useState('');
+
+  // Страна — код ISO2 ("RU") или null, если ещё не выбрана. Город —
+  // само название строкой (см. src/utils/location.js, почему без
+  // отдельного id) или null. Поле "Город" в разметке ниже показывается
+  // только когда countryCode уже выбран — выбор города вне контекста
+  // страны не имеет смысла (один и тот же список городов не может
+  // одновременно относиться ко всем странам).
+  const [countryCode, setCountryCode] = useState(null);
+  const [city, setCity] = useState(null);
+const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+  const [cityPickerVisible, setCityPickerVisible] = useState(false);
+
   const [loadingDemographics, setLoadingDemographics] = useState(true);
   const [savingDemographics, setSavingDemographics] = useState(false);
+const [savedSnapshot, setSavedSnapshot] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +85,16 @@ export default function ProfileScreen() {
           setBirthYear(data.birthYear);
           setBirthMonth(data.birthMonth);
           setWeightInput(data.weight !== null ? String(data.weight) : '');
+          setCountryCode(data.countryCode);
+          setCity(data.city);
         }
+        setSavedSnapshot({
+  birthYear: data.birthYear,
+  birthMonth: data.birthMonth,
+  weight: data.weight,
+  countryCode: data.countryCode,
+  city: data.city,
+});
       } catch (error) {
         console.error('Не удалось загрузить дату рождения/вес:', error);
       } finally {
@@ -83,10 +111,38 @@ export default function ProfileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const currentWeight = weightInput === '' ? null : Number(weightInput);
+const isDirty = Boolean(
+  savedSnapshot &&
+    (birthYear !== savedSnapshot.birthYear ||
+      birthMonth !== savedSnapshot.birthMonth ||
+      currentWeight !== savedSnapshot.weight ||
+      countryCode !== savedSnapshot.countryCode ||
+      city !== savedSnapshot.city),
+);
+
   const age = calculateAge(birthYear, birthMonth);
   const monthLabel = birthMonth
     ? BIRTH_MONTHS.find(item => item.value === birthMonth).label
     : 'Месяц';
+
+  // Список городов пересчитывается только когда меняется страна (а не
+  // на каждый рендер) — сам список для этой страны не меняется, пока
+  // не сменили страну.
+  const cityOptions = useMemo(() => getCityOptions(countryCode), [countryCode]);
+
+  const countryLabel = countryCode ? getCountryLabel(countryCode) || countryCode : 'Страна';
+  const cityLabel = city || 'Город';
+
+  // Смена страны сбрасывает выбранный город: он относится к конкретной
+  // стране (список городов приходит из getCityOptions(countryCode)),
+  // и после смены страны прежнее значение почти наверняка не входит в
+  // новый список — оставлять его нельзя, иначе город "потеряется" из
+  // вида, но останется висеть в состоянии.
+  const handleSelectCountry = value => {
+    setCountryCode(value);
+    setCity(null);
+  };
 
   // Вес — цифры и одна десятичная точка (72.5 кг и т.п.).
   const handleChangeWeight = text => {
@@ -133,9 +189,14 @@ export default function ProfileScreen() {
       return;
     }
 
-    setSavingDemographics(true);
+setSavingDemographics(true);
     try {
-      await saveProfileDemographics(user.uid, {birthYear, birthMonth, weight});
+      await saveProfileDemographics(user.uid, {birthYear, birthMonth, weight, countryCode, city});
+      // Без этого savedSnapshot оставался бы от момента открытия экрана,
+      // и кнопка "Сохранить" считала бы себя нужной вечно, даже сразу
+      // после успешного сохранения — isDirty сравнивает поля именно с
+      // savedSnapshot, а не с тем, что реально лежит в Firestore.
+      setSavedSnapshot({birthYear, birthMonth, weight, countryCode, city});
     } catch (error) {
       Alert.alert('Не удалось сохранить', String(error));
     } finally {
@@ -279,17 +340,41 @@ const handleApplyUpdate = () => {
                 testID="profile-weight-input"
               />
 
-<TouchableOpacity
-                style={styles.saveDemographicsButton}
-                onPress={handleSaveDemographics}
-                disabled={savingDemographics}
-                testID="profile-save-demographics-button">
-                {savingDemographics ? (
-                  <ActivityIndicator size="small" color={colors.textMuted} />
-                ) : (
-                  <Text style={styles.saveDemographicsButtonText}>Сохранить</Text>
-                )}
+<Text style={styles.locationLabel}>Страна</Text>
+              <TouchableOpacity
+style={styles.locationButton}
+                onPress={() => setCountryPickerVisible(true)}
+                testID="profile-country-button">
+                <Text style={styles.locationButtonText}>{countryLabel}</Text>
               </TouchableOpacity>
+
+              {/* Поле "Город" показывается только после выбора страны —
+                  см. комментарий у состояния countryCode/city выше. */}
+              {countryCode ? (
+                <>
+<Text style={styles.locationLabel}>Город</Text>
+                  <TouchableOpacity
+    style={styles.locationButton}
+                    onPress={() => setCityPickerVisible(true)}
+                    testID="profile-city-button">
+                    <Text style={styles.locationButtonText}>{cityLabel}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+
+{isDirty ? (
+                <TouchableOpacity
+                  style={styles.saveDemographicsButton}
+                  onPress={handleSaveDemographics}
+                  disabled={savingDemographics}
+                  testID="profile-save-demographics-button">
+                  {savingDemographics ? (
+                    <ActivityIndicator size="small" color={colors.textMuted} />
+                  ) : (
+                    <Text style={styles.saveDemographicsButtonText}>Сохранить</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
             </>
           )}
         </View>
@@ -314,6 +399,28 @@ const handleApplyUpdate = () => {
           columns={4}
         />
 
+<SearchableListPickerModal
+          visible={countryPickerVisible}
+          title="Страна"
+          options={COUNTRY_OPTIONS}
+          selectedValue={countryCode}
+          onSelect={handleSelectCountry}
+          onClose={() => setCountryPickerVisible(false)}
+          searchPlaceholder="Например, Россия"
+          testIDPrefix="profile-country-picker"   
+           />
+
+        <SearchableListPickerModal
+          visible={cityPickerVisible}
+          title="Город"
+          options={cityOptions}
+          selectedValue={city}
+          onSelect={setCity}
+          onClose={() => setCityPickerVisible(false)}
+          searchPlaceholder="Например, Москва"
+          testIDPrefix="profile-city-picker"
+        />
+
         {isMaster ? (
           <TouchableOpacity
             style={styles.manageButton}
@@ -335,50 +442,51 @@ const handleApplyUpdate = () => {
           </TouchableOpacity>
         ) : null}
 
-        <View style={styles.updatesSection}>
-          <Text style={styles.updatesTitle}>Обновления</Text>
+    {(checking || updateAvailable) ? (
+          <View style={styles.updatesSection}>
+            <Text style={styles.updatesTitle}>Обновления</Text>
 
-          {checking ? (
-            <Text style={styles.updatesStatusText}>Проверка обновлений...</Text>
-          ) : updateAvailable ? (
-<TouchableOpacity
-              style={styles.updateButton}
-              onPress={handleApplyUpdate}
-              disabled={applyingUpdate}
-              testID="profile-apply-update-button">
-              {applyingUpdate ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <Text style={styles.updateButtonText}>
-                  Установить обновление
-                </Text>
-              )}
-            </TouchableOpacity>
-          ) : (
-            <Text style={styles.updatesStatusText}>У вас последняя версия</Text>
-          )}
-        </View>
+            {checking ? (
+              <Text style={styles.updatesStatusText}>Проверка обновлений...</Text>
+            ) : (
+              <TouchableOpacity
+                style={styles.updateButton}
+                onPress={handleApplyUpdate}
+                disabled={applyingUpdate}
+                testID="profile-apply-update-button">
+                {applyingUpdate ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={styles.updateButtonText}>
+                    Установить обновление
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
 
-        {/* Ниже обновлений и специально отдельно от остального —
-            выше по экрану скоро появятся данные профиля (город,
-            возраст и т.п.), а "Лицензии" — служебная/юридическая
-            ссылка, ей место в самом низу списка, ближе к версии
-            приложения. */}
+      </View>
+
+      {/* Нижняя строка экрана: версия по центру, значок "ⓘ" (тот же
+          стиль, что у "Возраст"/"Рейтинг всех пользователей", открывает
+          "Лицензии") — в правом углу. Значок стоит "поверх" строки
+          через position: absolute, чтобы не толкать текст версии в
+          сторону и не мешать ему быть строго по центру. Строка вне
+          основного контейнера (у него flex: 1, забирает всё доступное
+          место), поэтому сама прижимается к самому низу экрана. */}
+      <View style={styles.bottomInfoRow}>
+        <Text style={styles.versionText}>v {packageJson.version}</Text>
         <TouchableOpacity
-          style={styles.licensesButton}
+          style={styles.licensesInfoButton}
           onPress={() => setLicensesVisible(true)}
+          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
           testID="profile-open-licenses-button">
-          <Text style={styles.licensesButtonText}>Лицензии</Text>
+          <Text style={styles.infoIcon}>ⓘ</Text>
         </TouchableOpacity>
       </View>
 
-{/* Версия — отдельным элементом ПОСЛЕ основного контейнера
-          (у него flex: 1, забирает всё доступное место), поэтому этот
-          текст сам прижимается к самому низу экрана, а не болтается
-          где-то в середине. */}
-      <Text style={styles.versionText}>v {packageJson.version}</Text>
-
-<Modal
+      <Modal
         visible={managementVisible}
         animationType="slide"
         onRequestClose={() => setManagementVisible(false)}>
@@ -428,7 +536,8 @@ const styles = StyleSheet.create({
   demographicsSection: {marginBottom: 30},
   demographicsTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
 demographicsLabel: {...typography.caption, fontSize: 13, color: colors.textSecondary},
-  labelRow: {
+locationLabel: {...typography.caption, fontSize: 13, color: colors.textSecondary, marginBottom: 6},
+labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -461,6 +570,20 @@ demographicsLabel: {...typography.caption, fontSize: 13, color: colors.textSecon
     color: colors.textPrimary,
     backgroundColor: colors.background,
   },
+  // Кнопка полей "Страна"/"Город" — тот же стиль рамки, что и у
+  // birthDateButton, но на всю ширину (названия стран/городов длиннее
+  // короткого "Месяц"/"Год", подгонять под них ширину смысла нет).
+  locationButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    backgroundColor: colors.background,
+  },
+  locationButtonText: {...typography.body, fontSize: 15, color: colors.textPrimary},
+
   saveDemographicsButton: {
     borderWidth: 1,
     borderColor: colors.primary,
@@ -491,14 +614,20 @@ demographicsLabel: {...typography.caption, fontSize: 13, color: colors.textSecon
   rebuildButtonDisabled: {opacity: 0.5},
   rebuildButtonText: {...typography.button, fontSize: 15, color: colors.danger},
 
-  // marginTop увеличен (было 12) — нужен заметный отступ "в две
-  // строки" от блока обновлений, чтобы "Лицензии" выглядела отдельным,
-  // самым нижним пунктом. alignItems не задаём (по умолчанию — как у
-  // остального текста на экране: прижато к левому краю, а не по
-  // центру).
-  licensesButton: {marginTop: 40},
-  licensesButtonText: {...typography.caption, fontSize: 13, color: colors.textMuted},
-
+  // Значок "ⓘ" стоит через position: absolute поверх этой строки — так
+  // он не участвует в потоке разметки и не сдвигает текст версии,
+  // который остаётся ровно по центру всей ширины экрана.
+  bottomInfoRow: {
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  licensesInfoButton: {
+    position: 'absolute',
+    right: 16,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
   updatesSection: {marginTop: 30},  
   updatesTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
   updatesStatusText: {...typography.caption, fontSize: 14, color: colors.textPlaceholder},
@@ -515,6 +644,5 @@ updateButtonText: {...typography.button, fontSize: 15, color: colors.white},
     fontSize: 12,
     color: colors.textPlaceholder,
     textAlign: 'center',
-    paddingVertical: 12,
   },
 });

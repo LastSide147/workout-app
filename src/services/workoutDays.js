@@ -10,13 +10,24 @@ function entriesCollection(userId, dateKey) {
 }
 
 export function subscribeToWorkoutDays(userId, onData) {
-  return workoutsCollection(userId).onSnapshot(snapshot => {
-    const days = {};
-    snapshot.docs.forEach(doc => {
-      days[doc.id] = doc.data();
-    });
-    onData(days);
-  });
+  return workoutsCollection(userId).onSnapshot(
+    snapshot => {
+      const days = {};
+      snapshot.docs.forEach(doc => {
+        days[doc.id] = doc.data();
+      });
+      onData(days);
+    },
+    // Без этого обработчика ошибка Firestore (например, отказ в
+    // доступе) не имела куда деться — экран просто зависал пустым.
+    // Теперь при ошибке отдаём пустой список тренировок вместо падения
+    // экрана, точно так же, как уже сделано у subscribeToDayEntries
+    // чуть ниже в этом же файле.
+    error => {
+      console.error('Ошибка подписки на дни тренировок:', error);
+      onData({});
+    },
+  );
 }
 
 export async function getDay(userId, dateKey) {

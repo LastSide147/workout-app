@@ -17,7 +17,12 @@ import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
 import colors from './src/theme/colors';
 
-initAppCheck();
+// initAppCheck() запускаем как можно раньше (на уровне модуля, а не
+// внутри компонента) — чтобы токен начал готовиться с самой первой
+// миллисекунды запуска, а не только после первого рендера App().
+// Promise сохраняем в переменную — сам компонент App() дожидается его
+// ниже, прежде чем показать что-либо, кроме спиннера (см. appCheckReady).
+const appCheckInitPromise = initAppCheck();
 initCrashlytics();
 
 
@@ -41,6 +46,22 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [emailVerified, setEmailVerified] = useState(false);
 
+  // Готовность App Check — отдельно от готовности авторизации.
+  // ГЛАВНОЕ ИЗМЕНЕНИЕ: раньше экраны с вкладками (а значит и первые
+  // запросы к Firestore — проверка роли, подписки на упражнения и
+  // записи дня) могли отрендериться и отправить запрос ДО того, как
+  // App Check успевал получить первый токен. Если Enforce в Firestore
+  // включён, такой "безбилетный" запрос отклоняется с ОШИБКОЙ ВИДА
+  // [firestore/permission-denied] — той же самой, что и настоящий
+  // запрет в Security Rules, снаружи не отличить. appCheckReady
+  // закрывает эту гонку: спиннер загрузки держится, пока не готовы
+  // ОБА условия — и авторизация, и App Check.
+  const [appCheckReady, setAppCheckReady] = useState(false);
+
+  useEffect(() => {
+    appCheckInitPromise.finally(() => setAppCheckReady(true));
+  }, []);
+
 useEffect(() => {
     const unsubscribe = subscribeToAuthState(newUser => {
       setUser(newUser);
@@ -55,7 +76,7 @@ useEffect(() => {
     setEmailVerified(true);
   };
 
-  if (initializing) {
+  if (initializing || !appCheckReady) {
     return (
       <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background}}>
         <StatusBar barStyle="light-content" />
@@ -123,4 +144,4 @@ useEffect(() => {
       </UpdatesProvider>
     </Host>
   );
-} 
+}

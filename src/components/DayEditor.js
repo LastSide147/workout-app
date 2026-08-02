@@ -749,7 +749,8 @@ const flushPendingRatingWrite = () => {
               ]}
               onPress={() => handleSetStatus(status)}
               testID={`day-status-button-${status}`}>
-           <Text
+<Text
+                numberOfLines={1}
                 style={[
                   styles.statusButtonText,
                   isActive ? styles.statusButtonTextActive : null,
@@ -1005,18 +1006,30 @@ titleRow: {
     flexShrink: 1,
   },
 
-  statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
-  // flex:1 у каждой кнопки + adjustsFontSizeToFit на тексте — все 3
-  // статуса гарантированно в одну строку на любом экране, шрифт сам
-  // уменьшается под самый длинный лейбл ("Травма/восстановление").
-  statusRow: {flexDirection: 'row', flexWrap: 'wrap'},
-  statusButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+statusTitle: {...typography.label, color: colors.textMuted, marginBottom: 10},
+  // flex: 1 у каждой кнопки — все 3 статуса делят строку поровну и
+  // гарантированно остаются в ОДНУ строку (flexWrap убран specially —
+  // переносить строки было причиной прошлой ошибки). Шрифт и его
+  // толщина не трогаются (см. statusButtonText ниже) — если самому
+  // длинному лейбну ("Травма/восстановление") не хватает места по
+  // ширине, он переносится на вторую строку ВНУТРИ своей кнопки (кнопка
+  // просто становится чуть выше), а не сжимается по буквам.
+  statusRow: {flexDirection: 'row'},
+statusButton: {
+    // Без flex: 1 (не growов) — каждая кнопка по умолчанию занимает
+    // ровно столько места, сколько нужно её собственному тексту
+    // ("Пропустил" — узкая, "Травма/восстановление" — шире). flexShrink
+    // остаётся: если сумма трёх "естественных" ширин всё равно не
+    // помещается в экран, все три пропорционально сожмутся, а не
+    // вылезут за край.
+    flexShrink: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     borderRadius: 16,
     backgroundColor: colors.surface,
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: 6,
     shadowColor: colors.black,
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.25,
@@ -1024,8 +1037,7 @@ titleRow: {
     elevation: 2,
   },
   statusButtonActive: {backgroundColor: colors.primary},
-   statusButtonText: {...typography.buttonSmall, color: colors.textPrimary},  
-  statusButtonTextActive: {color: colors.white},
+  statusButtonText: {...typography.caption, color: colors.textPrimary, textAlign: 'center'},  statusButtonTextActive: {color: colors.white},
 
   divider: {height: 1, backgroundColor: colors.divider, marginVertical: 16},
 

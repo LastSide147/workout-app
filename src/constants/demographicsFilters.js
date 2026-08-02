@@ -66,3 +66,24 @@ export function getWeightToleranceKg(selectedLabel) {
   const step = WEIGHT_TOLERANCE_STEPS.find(value => weightToleranceLabel(value) === selectedLabel);
   return typeof step === 'number' ? step : null;
 }
+// Фильтр по городу/стране — не диапазон, как у возраста/веса, а
+// простой выбор из трёх вариантов: не ограничивать, только свой город
+// (из профиля) или вся своя страна.
+export const ALL_LOCATIONS_OPTION = 'Без ограничений';
+export const CITY_FILTER_OPTION = 'Мой город';
+export const COUNTRY_FILTER_OPTION = 'Моя страна';
+export const LOCATION_FILTER_OPTIONS = [
+  ALL_LOCATIONS_OPTION,
+  CITY_FILTER_OPTION,
+  COUNTRY_FILTER_OPTION,
+];
+
+export function getLocationFilterMode(selectedLabel) {
+  if (selectedLabel === CITY_FILTER_OPTION) {
+    return 'city';
+  }
+  if (selectedLabel === COUNTRY_FILTER_OPTION) {
+    return 'country';
+  }
+  return null;
+}

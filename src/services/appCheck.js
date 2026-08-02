@@ -11,6 +11,15 @@ import {initializeAppCheck, ReactNativeFirebaseAppCheckProvider} from '@react-na
 // провайдер) умеет подтверждать только приложения, установленные из Play —
 // когда опубликуете приложение туда (даже в закрытое тестирование), нужно
 // будет заменить 'debug' на 'playIntegrity' здесь, для production-сборок.
+//
+// ВАЖНО: теперь initAppCheck() ВОЗВРАЩАЕТ Promise (раньше просто
+// "запускал и забывал"). Это стало критично с тех пор, как в Firestore
+// включили Enforce: запрос без готового токена App Check отклоняется
+// той же ошибкой [firestore/permission-denied], что и настоящий запрет
+// в Security Rules — снаружи не отличить. Раньше App.js не ждал этот
+// Promise и сразу показывал экраны, которые тут же лезли в Firestore —
+// получалась гонка (см. подробности в App.js, там же и дожидаемся
+// этого Promise перед показом чего-либо, кроме спиннера).
 export function initAppCheck() {
   const provider = new ReactNativeFirebaseAppCheckProvider();
   provider.configure({
@@ -23,10 +32,16 @@ export function initAppCheck() {
     },
   });
 
-  initializeAppCheck(getApp(), {
+  return initializeAppCheck(getApp(), {
     provider,
     isTokenAutoRefreshEnabled: true,
   }).catch(error => {
+    // Логируем, но НЕ пробрасываем ошибку дальше — если App Check по
+    // какой-то причине не инициализировался, приложение всё равно
+    // должно продолжить запуск, а не зависнуть на спиннере навсегда.
+    // Firestore в этом случае сам отклонит запросы (раз Enforce
+    // включён) — это будет понятная ошибка на конкретном действии, а
+    // не бесконечная "Загрузка...".
     console.error('Ошибка инициализации App Check:', error);
   });
 }

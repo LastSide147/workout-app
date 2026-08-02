@@ -109,14 +109,28 @@ export default function WorkoutHistoryScreen({userId}) {
   useFocusEffect(
     useCallback(() => {
       if (userId && !loadingExercises && Object.keys(days).length > 0) {
-        recalculateAllRatings(userId, days, exerciseCoefficients);
+        // У ВСЕХ фоновых вызовов ниже теперь есть .catch() — раньше
+        // его не было, и стоило Firestore на секунду стать
+        // недоступным (обычная временная сетевая проблема, из-за
+        // которой сам SDK советует просто повторить запрос) — как
+        // отклонённый Promise улетал необработанным и валил экран
+        // красной ошибкой "Uncaught (in promise)", хотя по сути ничего
+        // страшного не произошло: фон досчитается сам при следующем
+        // заходе на экран (см. комментарии про идемпотентность ниже).
+        recalculateAllRatings(userId, days, exerciseCoefficients).catch(error =>
+          console.error('Не удалось пересчитать рейтинг дней:', error),
+        );
 
         // Бэкфилл и миграция месячных бакетов сами защищены от
         // повторного запуска флагом в профиле пользователя (см.
         // services/ratings.js) — их можно безопасно вызывать при
         // каждом заходе на экран, лишней работы они не сделают.
-        ensureBucketsBackfilled(userId, days, exerciseCoefficients);
-        ensureMonthBucketsMigrated(userId, days, exerciseCoefficients);
+        ensureBucketsBackfilled(userId, days, exerciseCoefficients).catch(error =>
+          console.error('Не удалось выполнить бэкфилл бакетов рейтинга:', error),
+        );
+        ensureMonthBucketsMigrated(userId, days, exerciseCoefficients).catch(error =>
+          console.error('Не удалось выполнить миграцию месячных бакетов:', error),
+        );
 
         // Аналогичный по духу одноразовый бэкфилл, но для "Мои
         // упражнения" в Статистике — переносит повторения из старых
@@ -124,7 +138,9 @@ export default function WorkoutHistoryScreen({userId}) {
         // комментарий в services/workoutDays.js). Тоже безопасно
         // вызывать при каждом заходе на экран: дни, где поле уже есть,
         // просто пропускаются без единого лишнего чтения.
-        ensureWorkoutDayTotalsBackfilled(userId, days);
+        ensureWorkoutDayTotalsBackfilled(userId, days).catch(error =>
+          console.error('Не удалось выполнить бэкфилл сумм по дням:', error),
+        );
 
         // Дни, которые уже закончились и остались совсем пустыми (ни
         // тренировки, ни статуса) — автоматически помечаем "Пропустил".

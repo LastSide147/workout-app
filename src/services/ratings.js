@@ -66,16 +66,18 @@ async function getDemographicSnapshot(userId) {
         setTimeout(() => reject(new Error('DEMOGRAPHICS_READ_TIMEOUT')), 4000),
       ),
     ]);
-    return {
+return {
       age: calculateAge(demographics.birthYear, demographics.birthMonth),
       weight: demographics.weight,
+      countryCode: demographics.countryCode,
+      city: demographics.city,
     };
   } catch (error) {
     console.error(
-      'Не удалось получить возраст/вес для метки бакета рейтинга (не критично, продолжаем без них):',
+      'Не удалось получить возраст/вес/город для метки бакета рейтинга (не критично, продолжаем без них):',
       error,
     );
-    return {age: null, weight: null};
+    return {age: null, weight: null, countryCode: null, city: null};
   }
 }
 
@@ -165,9 +167,11 @@ function applyBucketDeltas(
       rating: firestore.FieldValue.increment(ratingDelta),
     };
 
-    if (demographicSnapshot) {
+if (demographicSnapshot) {
       update.age = demographicSnapshot.age;
       update.weight = demographicSnapshot.weight;
+      update.countryCode = demographicSnapshot.countryCode;
+      update.city = demographicSnapshot.city;
     }
 
     // ВАЖНО: поле byExercise добавляем в update, ТОЛЬКО если есть,
@@ -374,6 +378,9 @@ export async function upsertProfileNickname(userId) {
 // прочитать для этого периода. "3 месяца" — не отдельный бакет, а
 // просто сумма 3 месячных бакетов (текущий и два предыдущих) —
 // дешевле, чем городить ещё один вид бакета ради одного периода.
+// periodKey: 'day' | 'week' | 'month' | 'year'.
+// Возвращает id документа leaderboardTotals/{id}, который нужно
+// прочитать для этого периода.
 function getBucketIdsForPeriod(periodKey) {
   const today = new Date();
 
@@ -386,14 +393,6 @@ function getBucketIdsForPeriod(periodKey) {
       return [`month-${getStartOfMonthKey(today)}`];
     case 'year':
       return [`year-${today.getFullYear()}`];
-    case '3months': {
-      const ids = [];
-      for (let i = 0; i < 3; i += 1) {
-        const monthDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
-        ids.push(`month-${getStartOfMonthKey(monthDate)}`);
-      }
-      return ids;
-    }
     default:
       throw new Error(`Неизвестный период рейтинга: ${periodKey}`);
   }
@@ -437,10 +436,12 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
     ),
   );
 
-  const totalsByUser = {};
+const totalsByUser = {};
   const nicknameByUser = {};
   const ageByUser = {};
   const weightByUser = {};
+  const countryByUser = {};
+  const cityByUser = {};
 
   snapshotsPerBucket.forEach(snapshot => {
     snapshot.docs.forEach(doc => {
@@ -463,8 +464,14 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
       if (typeof data.age === 'number') {
         ageByUser[userId] = data.age;
       }
-      if (typeof data.weight === 'number') {
+if (typeof data.weight === 'number') {
         weightByUser[userId] = data.weight;
+      }
+      if (typeof data.countryCode === 'string') {
+        countryByUser[userId] = data.countryCode;
+      }
+      if (typeof data.city === 'string') {
+        cityByUser[userId] = data.city;
       }
     });
   });
@@ -479,8 +486,11 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
       return typeof theirAge === 'number' && Math.abs(theirAge - viewerAge) <= ageToleranceYears;
     });
   }
-
-  const weightToleranceKg = demographicFilter && demographicFilter.weightToleranceKg;
+  
+  // locationMode: 'city' — только те, у кого city совпадает с городом
+  // смотрящего; 'country' — только те, у кого совпадает countryCode;
+  // null/что угодно другое — фильтр выключен ("Без ограничений").
+ const weightToleranceKg = demographicFilter && demographicFilter.weightToleranceKg;
   const viewerWeight = demographicFilter && demographicFilter.viewerWeight;
   if (typeof weightToleranceKg === 'number' && typeof viewerWeight === 'number') {
     eligibleUserIds = eligibleUserIds.filter(userId => {
@@ -489,6 +499,18 @@ export async function fetchLeaderboard(periodKey, exerciseFilter, demographicFil
         typeof theirWeight === 'number' && Math.abs(theirWeight - viewerWeight) <= weightToleranceKg
       );
     });
+  }
+
+  // locationMode: 'city' — только те, у кого city совпадает с городом
+  // смотрящего; 'country' — только те, у кого совпадает countryCode;
+  // null/что угодно другое — фильтр выключен ("Без ограничений").
+  const locationMode = demographicFilter && demographicFilter.locationMode;
+  if (locationMode === 'city') {
+    const viewerCity = demographicFilter.viewerCity;
+    eligibleUserIds = eligibleUserIds.filter(userId => cityByUser[userId] === viewerCity);
+  } else if (locationMode === 'country') {
+    const viewerCountryCode = demographicFilter.viewerCountryCode;
+    eligibleUserIds = eligibleUserIds.filter(userId => countryByUser[userId] === viewerCountryCode);
   }
 
   const leaderboard = eligibleUserIds
@@ -838,13 +860,15 @@ export async function rebuildAllBucketsFromHistory(userId) {
 
   Object.keys(totalsByPeriod).forEach(periodKey => {
     const {rating, byExercise} = totalsByPeriod[periodKey];
-    queueWrite(bucketUserDoc(periodKey, userId), {
+queueWrite(bucketUserDoc(periodKey, userId), {
       nickname,
       updatedAt: firestore.FieldValue.serverTimestamp(),
       rating,
       byExercise,
       age: demographicSnapshot.age,
       weight: demographicSnapshot.weight,
+      countryCode: demographicSnapshot.countryCode,
+      city: demographicSnapshot.city,
     });
   });
 

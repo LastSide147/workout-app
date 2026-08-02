@@ -1,17 +1,34 @@
-// СТАРТОВЫЙ список городов для автодополнения при выборе в профиле.
-// Пока состоит из: столицы каждой страны (настоящие данные, не
-// вручную) + вручную добавленные крупные города России и части стран
-// СНГ. Украина намеренно не включена.
+// Список городов для автодополнения при выборе в профиле. Состоит из:
+// столицы каждой страны (кроме России — см. ниже) + вручную
+// добавленные города СНГ. Украина намеренно не включена.
 //
-// Это НЕ полный список городов мира и не финальная версия — такого
-// источника с точным населением не нашлось в открытом доступе оттуда,
-// куда есть доступ сейчас. Приложение доступно и пользователям из
-// других стран (Google Play), которых этот список пока не покрывает.
-// Файл специально сделан так, чтобы его было легко расширить позже —
-// либо дополнить прямо здесь, либо целиком заменить на другой
-// источник (например, полноценную базу городов с фильтром по
-// населению) — остальной код (поиск, фильтрация) не завязан на то,
-// откуда взялись данные, ему нужен только формат
+// РОССИЯ — единственная страна с ПОЛНЫМ покрытием: здесь все города с
+// населением от 50 000 человек (325 штук, источник — открытые данные
+// по переписи/текущим оценкам Росстата, свод по состоянию на 2026
+// год). Именно этот порог даёт лучший баланс: попадают все города,
+// где реально может набраться сравнимая группа пользователей для
+// статистики, а список остаётся компактным (полный список всех 1117
+// городов РФ включал бы много посёлков, о которых никто не будет
+// вводить в поиске "город с населением 5000").
+//
+// Единственное совпадение названий во всём российском списке — два
+// разных Железногорска (Курская область и Красноярский край), поэтому
+// у них в name регион указан прямо в скобках, у остальных городов —
+// нет (не нужно, названий с 2026 населением от 50к достаточно, чтобы
+// быть уникальными).
+//
+// Для ВСЕХ ОСТАЛЬНЫХ стран список пока не полный (только столица) —
+// такого источника с точным населением по каждой стране не нашлось в
+// открытом доступе оттуда, куда есть доступ сейчас. Приложение
+// доступно и пользователям из других стран (Google Play), которых
+// этот список пока не покрывает.
+//
+// ВАЖНО ДЛЯ БУДУЩИХ ПРАВОК: чтобы полноценно добавить ещё одну страну
+// (например, Казахстан) — 1) допишите её города сюда тем же форматом
+// {name, countryCode}, 2) добавьте код страны в ENABLED_COUNTRY_CODES
+// в src/utils/location.js, где страна становится доступной для выбора
+// в профиле. Сам этот файл и остальной код (поиск, фильтрация) не
+// завязаны на то, откуда взялись данные, — им нужен только формат
 // {name, countryCode}.
 const cities = [
   {
@@ -843,7 +860,63 @@ const cities = [
     "countryCode": "RS"
   },
   {
-    "name": "Moscow",
+    "name": "Абакан",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Азов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Александров",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Алексин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Альметьевск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Анапа",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ангарск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Анжеро-Судженск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Апатиты",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Арзамас",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Армавир",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Арсеньев",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Артём",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Архангельск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Асбест",
     "countryCode": "RU"
   },
   {
@@ -851,7 +924,23 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Ачинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Балаково",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Балахна",
+    "countryCode": "RU"
+  },
+  {
     "name": "Балашиха",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Балашов",
     "countryCode": "RU"
   },
   {
@@ -859,7 +948,71 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Батайск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Белгород",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Белебей",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Белово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Белогорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Белорецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Белореченск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Бердск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Березники",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Берёзовский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Бийск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Биробиджан",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Благовещенск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Бор",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Борисоглебск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Боровичи",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Братск",
     "countryCode": "RU"
   },
   {
@@ -867,7 +1020,51 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Бугульма",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Бугуруслан",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Будённовск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Бузулук",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Буйнакск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Великие Луки",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Великий Новгород",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Верхняя Пышма",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Видное",
+    "countryCode": "RU"
+  },
+  {
     "name": "Владивосток",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Владикавказ",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Владимир",
     "countryCode": "RU"
   },
   {
@@ -875,7 +1072,143 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Волгодонск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Волжск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Волжский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Вологда",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Вольск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Воркута",
+    "countryCode": "RU"
+  },
+  {
     "name": "Воронеж",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Воскресенск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Воткинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Всеволожск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Выборг",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Выкса",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Вышний Волочёк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Вязьма",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Гатчина",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Геленджик",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Георгиевск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Глазов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Горно-Алтайск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Грозный",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Губкин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Гуково",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Гусь-Хрустальный",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Дербент",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Дзержинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Димитровград",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Дмитров",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Долгопрудный",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Домодедово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Донецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Донской",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Дубна",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Евпатория",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Егорьевск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ейск",
     "countryCode": "RU"
   },
   {
@@ -883,7 +1216,55 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Елабуга",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Елец",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ессентуки",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Железногорск (Красноярский край)",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Железногорск (Курская область)",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Жигулёвск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Жуковский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Заречный",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Зеленогорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Зеленодольск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Златоуст",
+    "countryCode": "RU"
+  },
+  {
     "name": "Иваново",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ивантеевка",
     "countryCode": "RU"
   },
   {
@@ -891,7 +1272,27 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Избербаш",
+    "countryCode": "RU"
+  },
+  {
     "name": "Иркутск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Искитим",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ишим",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ишимбай",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Йошкар-Ола",
     "countryCode": "RU"
   },
   {
@@ -903,7 +1304,43 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Калуга",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Каменск-Уральский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Каменск-Шахтинский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Камышин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Канск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Каспийск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Кемерово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Керчь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кинешма",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кириши",
     "countryCode": "RU"
   },
   {
@@ -911,7 +1348,75 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Кирово-Чепецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Киселёвск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кисловодск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Клин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Клинцы",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ковров",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Когалым",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Коломна",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Комсомольск-на-Амуре",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Копейск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Королёв",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кострома",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Котлас",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Красногорск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Краснодар",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Краснокаменск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Краснокамск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Краснотурьинск",
     "countryCode": "RU"
   },
   {
@@ -919,7 +1424,63 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Кропоткин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Крымск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кстово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кузнецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кумертау",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кунгур",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Курган",
+    "countryCode": "RU"
+  },
+  {
     "name": "Курск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Кызыл",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лабинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лениногорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ленинск-Кузнецкий",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лесной",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лесосибирск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ливны",
     "countryCode": "RU"
   },
   {
@@ -927,7 +1488,35 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Лиски",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лобня",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лысьва",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Лыткарино",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Люберцы",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Магадан",
+    "countryCode": "RU"
+  },
+  {
     "name": "Магнитогорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Майкоп",
     "countryCode": "RU"
   },
   {
@@ -935,7 +1524,99 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Междуреченск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Мелеуз",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Миасс",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Минеральные Воды",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Минусинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Михайловка",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Михайловск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Мичуринск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Москва",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Мурманск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Муром",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Мытищи",
+    "countryCode": "RU"
+  },
+  {
     "name": "Набережные Челны",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Назарово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Назрань",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нальчик",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Наро-Фоминск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Находка",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Невинномысск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нерюнгри",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нефтекамск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нефтеюганск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нижневартовск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нижнекамск",
     "countryCode": "RU"
   },
   {
@@ -943,7 +1624,27 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Нижний Тагил",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новоалтайск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Новокузнецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новокуйбышевск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новомосковск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новороссийск",
     "countryCode": "RU"
   },
   {
@@ -951,7 +1652,67 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Новотроицк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новоуральск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новочебоксарск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новочеркасск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новошахтинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Новый Уренгой",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ногинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Норильск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ноябрьск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Нягань",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Обнинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Одинцово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Озёрск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Октябрьский",
+    "countryCode": "RU"
+  },
+  {
     "name": "Омск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Орёл",
     "countryCode": "RU"
   },
   {
@@ -959,7 +1720,27 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Орехово-Зуево",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Орск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Павлово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Павловский Посад",
+    "countryCode": "RU"
+  },
+  {
     "name": "Пенза",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Первоуральск",
     "countryCode": "RU"
   },
   {
@@ -967,11 +1748,87 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Петрозаводск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Петропавловск-Камчатский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Подольск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Полевской",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Прокопьевск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Прохладный",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Псков",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Пушкино",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Пятигорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Раменское",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ревда",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Реутов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ржев",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Рославль",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Россошь",
+    "countryCode": "RU"
+  },
+  {
     "name": "Ростов-на-Дону",
     "countryCode": "RU"
   },
   {
+    "name": "Рубцовск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Рыбинск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Рязань",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Салават",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сальск",
     "countryCode": "RU"
   },
   {
@@ -983,11 +1840,79 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Саранск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сарапул",
+    "countryCode": "RU"
+  },
+  {
     "name": "Саратов",
     "countryCode": "RU"
   },
   {
+    "name": "Саров",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Свободный",
+    "countryCode": "RU"
+  },
+  {
     "name": "Севастополь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Северодвинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Североморск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Северск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сергиев Посад",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Серов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Серпухов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сибай",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Симферополь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Славянск-на-Кубани",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Смоленск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Соликамск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Солнечногорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сосновый Бор",
     "countryCode": "RU"
   },
   {
@@ -999,7 +1924,59 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Старый Оскол",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Стерлитамак",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ступино",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сунжа",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сургут",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сызрань",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Сыктывкар",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Таганрог",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Тамбов",
+    "countryCode": "RU"
+  },
+  {
     "name": "Тверь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Тимашёвск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Тихвин",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Тихорецк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Тобольск",
     "countryCode": "RU"
   },
   {
@@ -1011,11 +1988,27 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Троицк",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Туапсе",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Туймазы",
+    "countryCode": "RU"
+  },
+  {
     "name": "Тула",
     "countryCode": "RU"
   },
   {
     "name": "Тюмень",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Узловая",
     "countryCode": "RU"
   },
   {
@@ -1027,11 +2020,55 @@ const cities = [
     "countryCode": "RU"
   },
   {
+    "name": "Усолье-Сибирское",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Уссурийск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Усть-Илимск",
+    "countryCode": "RU"
+  },
+  {
     "name": "Уфа",
     "countryCode": "RU"
   },
   {
+    "name": "Ухта",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Феодосия",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Фрязино",
+    "countryCode": "RU"
+  },
+  {
     "name": "Хабаровск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ханты-Мансийск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Хасавюрт",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Химки",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Чайковский",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Чапаевск",
     "countryCode": "RU"
   },
   {
@@ -1040,6 +2077,82 @@ const cities = [
   },
   {
     "name": "Челябинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Черемхово",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Череповец",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Черкесск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Черногорск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Чехов",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Чистополь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Чита",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Шадринск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Шахты",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Шуя",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Щёкино",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Щёлково",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Электросталь",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Элиста",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Энгельс",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Южно-Сахалинск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Юрга",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Якутск",
+    "countryCode": "RU"
+  },
+  {
+    "name": "Ялта",
     "countryCode": "RU"
   },
   {
