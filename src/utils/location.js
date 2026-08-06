@@ -36,9 +36,29 @@ export function getCityOptions(countryCode) {
     .map(city => ({value: city.name, label: city.name}));
 }
 
-// Название страны по коду — нужно, чтобы после перезахода в профиль
-// показать на кнопке "Россия", а не хранившийся код "RU".
-export function getCountryLabel(countryCode) {
+// Выбирает нужное поле названия страны по языку — 'en' → nameEn, любое
+// другое значение (в том числе не переданное) → nameRu. Запасной вариант
+// — русский, чтобы старые вызовы без языка (профиль, пока не
+// локализован) продолжали работать точно как раньше.
+function pickCountryName(country, language) {
+  return language === 'en' ? country.nameEn : country.nameRu;
+}
+
+// Название страны по коду — нужно, чтобы после перезахода показать
+// "Russia"/"Россия", а не хранившийся код "RU". language необязателен
+// — старые вызовы (профиль) без него получат русский, как и раньше.
+export function getCountryLabel(countryCode, language = 'ru') {
   const found = countries.find(country => country.code === countryCode);
-  return found ? found.nameRu : null;
+  return found ? pickCountryName(found, language) : null;
+}
+
+// Полный список стран — для экрана регистрации/входа, где нужно
+// просто узнать, какую страну указал пользователь (в отличие от
+// getCountryOptions() выше, тут нет фильтра по ENABLED_COUNTRY_CODES).
+// language — тот же принцип, что и в getCountryLabel выше.
+export function getAllCountryOptions(language = 'ru') {
+  return countries.map(country => ({
+    value: country.code,
+    label: pickCountryName(country, language),
+  }));
 }

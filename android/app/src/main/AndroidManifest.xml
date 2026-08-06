@@ -1,17 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
-
-  <!--
-    Приложение не работает с файлами и не рисует поверх других окон,
-    поэтому явно исключаем эти разрешения, даже если их запрашивает
-    одна из библиотек (expo-file-system, react-native debug-меню).
-    RuStore-модерация проверяет каждое разрешение на соответствие
-    реальной функциональности — "лишние" permissions без обоснования
-    тормозят проверку или приводят к отклонению версии.
-    tools:node="remove" гарантированно убирает permission из итогового
-    манифеста, даже если он объединяется (merge) из манифеста библиотеки.
-  -->
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove"/>

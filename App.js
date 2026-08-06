@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {View, ActivityIndicator, StatusBar, AppState} from 'react-native';
+import './src/i18n'; 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';

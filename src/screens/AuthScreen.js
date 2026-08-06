@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
+import {useTranslation} from 'react-i18next';
 import {
   registerWithEmail,
   loginWithEmail,
@@ -17,8 +18,27 @@ import {
   logout,
   getAuthErrorMessage,
 } from '../services/auth';
+import {getAllCountryOptions, getCountryLabel} from '../utils/location';
+import SearchableListPickerModal from '../components/SearchableListPickerModal';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
+
+// Полный список стран для пикера на экране регистрации — строится один
+// раз при загрузке модуля, а не при каждом рендере.
+// const COUNTRY_OPTIONS = getAllCountryOptions();
+
+// Код России в constants/countries.js.
+const RUSSIA_COUNTRY_CODE = 'RU';
+
+// ФЛАГ НА ПЕРИОД ТЕСТИРОВАНИЯ: сейчас идёт закрытое тестирование в
+// Google Play, для него нужны тестировщики из России — поэтому
+// регистрация из России пока РАЗРЕШЕНА наравне со всеми остальными
+// странами. Как только Google Play одобрит публикацию — поменяйте это
+// значение на false и опубликуйте OTA-обновление: с этого момента
+// новые регистрации из России будут блокироваться (см. проверку в
+// handleSubmit ниже). Уже зарегистрированные пользователи как заходили,
+// так и будут заходить — флаг влияет только на НОВУЮ регистрацию.
+const RUSSIA_REGISTRATION_ALLOWED = true;
 
 function isValidEmail(value) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,8 +55,6 @@ function getPasswordChecks(password) {
 }
 
 // Одна строка списка требований — галочка/крестик + подпись.
-// Вынесена отдельным компонентом, чтобы не повторять одну и ту же
-// разметку четыре раза.
 function PasswordRequirementRow({met, label}) {
   return (
     <View style={styles.requirementRow}>
@@ -52,33 +70,49 @@ function PasswordRequirementRow({met, label}) {
   );
 }
 
-// Одна и та же фраза используется во всех трёх местах, где отправляется
-// письмо (регистрация, повторная отправка, сброс пароля) — чтобы текст
-// не разъезжался по формулировке и его нужно было менять в одном месте.
-const SPAM_FOLDER_NOTE =
-  'Если письма нет во "Входящих" - проверьте папку "Спам". Откройте ссылку для подтверждения регистрации.';
-
 export default function AuthScreen({pendingVerification, onVerified}) {
+  const {t, i18n} = useTranslation();
   const [mode, setMode] = useState('login');
+
+  // Список стран пересчитывается только когда меняется язык (i18n.language
+  // в зависимостях) — не на каждый рендер экрана.
+  const countryOptions = useMemo(() => getAllCountryOptions(i18n.language), [i18n.language]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const passwordChecks = getPasswordChecks(password);
 
+  // Страна, которую пользователь ЯВНО выбрал при регистрации (не по
+  // IP/локали устройства). Нужна только в момент регистрации — при
+  // входе уже существующего аккаунта этот вопрос не задаём.
+  const [registrationCountry, setRegistrationCountry] = useState(null);
+  const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+
   const handleSubmit = async () => {
     const trimmedEmail = email.trim();
 
+    if (mode === 'register' && !registrationCountry) {
+      Alert.alert(t('auth.selectCountryFirstTitle'), t('auth.selectCountryFirstMessage'));
+      return;
+    }
+
+    if (
+      mode === 'register' &&
+      registrationCountry === RUSSIA_COUNTRY_CODE &&
+      !RUSSIA_REGISTRATION_ALLOWED
+    ) {
+      Alert.alert(t('auth.russiaUnavailableTitle'), t('auth.russiaUnavailableMessage'));
+      return;
+    }
+
     if (!trimmedEmail || !password) {
-      Alert.alert('Заполните email и пароль');
+      Alert.alert(t('auth.fillFieldsAlert'));
       return;
     }
 
     if (!isValidEmail(trimmedEmail)) {
-      Alert.alert(
-        'Некорректный email',
-        'Проверьте, что адрес указан полностью, например: name@example.com',
-      );
+      Alert.alert(t('auth.invalidEmailTitle'), t('auth.invalidEmailMessage'));
       return;
     }
 
@@ -87,14 +121,14 @@ export default function AuthScreen({pendingVerification, onVerified}) {
       if (mode === 'register') {
         await registerWithEmail(trimmedEmail, password);
         Alert.alert(
-          'Проверьте почту',
-          'Письмо для подтверждения отправлено на email' + SPAM_FOLDER_NOTE,
+          t('auth.checkEmailTitle'),
+          t('auth.checkEmailMessage') + ' ' + t('auth.spamFolderNote'),
         );
       } else {
         await loginWithEmail(trimmedEmail, password);
       }
     } catch (error) {
-      Alert.alert('Ошибка', getAuthErrorMessage(error));
+      Alert.alert(t('auth.errorTitle'), getAuthErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -107,33 +141,27 @@ export default function AuthScreen({pendingVerification, onVerified}) {
       if (user && user.emailVerified) {
         onVerified();
       } else {
-        Alert.alert('Email ещё не подтверждён', 'Проверьте почту и перейдите по ссылке');
+        Alert.alert(t('auth.emailNotVerifiedTitle'), t('auth.emailNotVerifiedMessage'));
       }
     } finally {
       setLoading(false);
     }
   };
 
- const handleResend = async () => {
+  const handleResend = async () => {
     try {
       await resendVerificationEmail();
-      Alert.alert('Готово', 'Письмо отправлено повторно. ' + SPAM_FOLDER_NOTE);
+      Alert.alert(t('auth.resendDoneTitle'), t('auth.resendDoneMessage') + t('auth.spamFolderNote'));
     } catch (error) {
-      Alert.alert('Ошибка', getAuthErrorMessage(error));
+      Alert.alert(t('auth.errorTitle'), getAuthErrorMessage(error));
     }
   };
 
-  // Письмо для сброса пароля уходит на тот же email, что уже введён в
-  // поле выше — отдельного экрана/поля для этого не делаем, это то же
-  // самое поле, что и для входа/регистрации.
   const handleForgotPassword = async () => {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
-      Alert.alert(
-        'Введите email',
-        'Сначала введите свой email в поле выше, затем нажмите "Забыли пароль?" ещё раз.',
-      );
+      Alert.alert(t('auth.enterEmailTitle'), t('auth.enterEmailMessage'));
       return;
     }
 
@@ -141,14 +169,14 @@ export default function AuthScreen({pendingVerification, onVerified}) {
     try {
       await sendPasswordReset(trimmedEmail);
       Alert.alert(
-        'Письмо отправлено',
-        'Мы отправили ссылку для смены пароля на ' + trimmedEmail + '. ' + SPAM_FOLDER_NOTE,
+        t('auth.resetEmailSentTitle'),
+        t('auth.resetEmailSentMessage') + trimmedEmail + '. ' + t('auth.spamFolderNote'),
       );
     } catch (error) {
       if (error && error.code === 'auth/user-not-found') {
-        Alert.alert('Email не найден', 'Аккаунт с таким email не зарегистрирован.');
+        Alert.alert(t('auth.emailNotFoundTitle'), t('auth.emailNotFoundMessage'));
       } else {
-        Alert.alert('Ошибка', getAuthErrorMessage(error));
+        Alert.alert(t('auth.errorTitle'), getAuthErrorMessage(error));
       }
     } finally {
       setLoading(false);
@@ -158,28 +186,25 @@ export default function AuthScreen({pendingVerification, onVerified}) {
   if (pendingVerification) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Подтвердите почту</Text>
-        <Text style={styles.description}>
-          Письмо для подтверждения отправлено на email. Перейдите по ней, затем
-          нажмите кнопку ниже.
-        </Text>
-                <Text style={styles.spamNote}>{SPAM_FOLDER_NOTE}</Text>
+        <Text style={styles.title}>{t('auth.confirmEmailTitle')}</Text>
+        <Text style={styles.description}>{t('auth.confirmEmailDescription')}</Text>
+        <Text style={styles.spamNote}>{t('auth.spamFolderNote')}</Text>
 
         <TouchableOpacity
           style={styles.primaryButton}
           onPress={handleCheckVerified}
           disabled={loading}>
           <Text style={styles.primaryButtonText}>
-            {loading ? 'Проверка...' : 'Я подтвердил, продолжить'}
+            {loading ? t('auth.checkingButton') : t('auth.confirmedButton')}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.linkButton} onPress={handleResend}>
-          <Text style={styles.linkText}>Отправить письмо повторно</Text>
+          <Text style={styles.linkText}>{t('auth.resendButton')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.linkButton} onPress={logout}>
-          <Text style={styles.linkText}>Выйти и войти другим аккаунтом</Text>
+          <Text style={styles.linkText}>{t('auth.logoutButton')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -188,12 +213,23 @@ export default function AuthScreen({pendingVerification, onVerified}) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>
-        {mode === 'login' ? 'Вход' : 'Регистрация'}
+        {mode === 'login' ? t('auth.loginTitle') : t('auth.registerTitle')}
       </Text>
+
+      {mode === 'register' ? (
+        <TouchableOpacity
+          style={styles.input}
+          onPress={() => setCountryPickerVisible(true)}
+          testID="auth-country-button">
+<Text style={registrationCountry ? styles.countryValueText : styles.countryPlaceholderText}>
+            {registrationCountry ? getCountryLabel(registrationCountry, i18n.language) : t('auth.countryPlaceholder')}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder={t('auth.emailPlaceholder')}
         placeholderTextColor={colors.textPlaceholder}
         autoCapitalize="none"
         autoCorrect={false}
@@ -206,7 +242,7 @@ export default function AuthScreen({pendingVerification, onVerified}) {
       <View style={styles.passwordRow}>
         <TextInput
           style={styles.passwordInput}
-          placeholder="Пароль"
+          placeholder={t('auth.passwordPlaceholder')}
           placeholderTextColor={colors.textPlaceholder}
           autoCapitalize="none"
           autoCorrect={false}
@@ -228,20 +264,20 @@ export default function AuthScreen({pendingVerification, onVerified}) {
 
       {mode === 'register' ? (
         <View style={styles.passwordRequirements} testID="auth-password-requirements">
-          <PasswordRequirementRow met={passwordChecks.length} label="Минимум 8 символов" />
-          <PasswordRequirementRow met={passwordChecks.uppercase} label="Заглавная буква (A-Z)" />
-          <PasswordRequirementRow met={passwordChecks.lowercase} label="Строчная буква (a-z)" />
-          <PasswordRequirementRow met={passwordChecks.digit} label="Цифра (0-9)" />
+          <PasswordRequirementRow met={passwordChecks.length} label={t('auth.passwordReqLength')} />
+          <PasswordRequirementRow met={passwordChecks.uppercase} label={t('auth.passwordReqUppercase')} />
+          <PasswordRequirementRow met={passwordChecks.lowercase} label={t('auth.passwordReqLowercase')} />
+          <PasswordRequirementRow met={passwordChecks.digit} label={t('auth.passwordReqDigit')} />
         </View>
       ) : null}
 
-       {mode === 'login' ? (
+      {mode === 'login' ? (
         <TouchableOpacity
           style={styles.forgotPasswordButton}
           onPress={handleForgotPassword}
           disabled={loading}
           testID="auth-forgot-password-button">
-          <Text style={styles.linkText}>Забыли пароль?</Text>
+          <Text style={styles.linkText}>{t('auth.forgotPassword')}</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -251,10 +287,10 @@ export default function AuthScreen({pendingVerification, onVerified}) {
         disabled={loading}>
         <Text style={styles.primaryButtonText}>
           {loading
-            ? 'Подождите...'
+            ? t('auth.submitWait')
             : mode === 'login'
-            ? 'Войти'
-            : 'Зарегистрироваться'}
+            ? t('auth.loginButton')
+            : t('auth.registerButton')}
         </Text>
       </TouchableOpacity>
 
@@ -262,11 +298,19 @@ export default function AuthScreen({pendingVerification, onVerified}) {
         style={styles.linkButton}
         onPress={() => setMode(mode === 'login' ? 'register' : 'login')}>
         <Text style={styles.linkText}>
-          {mode === 'login'
-            ? 'Нет аккаунта? Зарегистрироваться'
-            : 'Уже есть аккаунт? Войти'}
+          {mode === 'login' ? t('auth.noAccountLink') : t('auth.hasAccountLink')}
         </Text>
       </TouchableOpacity>
+
+<SearchableListPickerModal
+        visible={countryPickerVisible}
+        title={t('auth.countryPickerTitle')}
+        options={countryOptions}
+        selectedValue={registrationCountry}
+        onSelect={setRegistrationCountry}
+        onClose={() => setCountryPickerVisible(false)}
+        testIDPrefix="auth-country-picker"
+      />
     </View>
   );
 }
@@ -285,6 +329,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     color: colors.textPrimary,
   },
+  countryPlaceholderText: {fontSize: 16, color: colors.textPlaceholder},
+  countryValueText: {fontSize: 16, color: colors.textPrimary},
   passwordRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -311,9 +357,8 @@ const styles = StyleSheet.create({
   primaryButtonText: {...typography.button, color: colors.white},
   linkButton: {marginTop: 16, alignItems: 'center'},
   linkText: {...typography.buttonSmall, fontSize: 14, color: colors.primary},
-
   forgotPasswordButton: {alignItems: 'flex-end', marginBottom: 4},
-spamNote: {
+  spamNote: {
     ...typography.caption,
     fontSize: 13,
     color: colors.textMuted,
