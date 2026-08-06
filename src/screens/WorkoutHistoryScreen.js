@@ -13,9 +13,8 @@ import {
   ensureMonthBucketsMigrated,
 } from '../services/ratings';
 import {DAY_STATUS, STATUS_COLORS} from '../constants/dayStatus';
-import {getDateKey, parseDateKey} from '../utils/date';
-import DayEditor from '../components/DayEditor';
-import ScreenContainer from '../components/ScreenContainer';
+import {getDateKey, parseDateKey, getStartOfMonthKey, HISTORY_MIN_DATE_KEY, getHistoryMaxDateKey} from '../utils/date';
+import DayEditor from '../components/DayEditor';import ScreenContainer from '../components/ScreenContainer';
 import WeeklyBonusModal from '../components/WeeklyBonusModal';
 import useExercises from '../hooks/useExercises';
 import useWeeklyBonus from '../hooks/useWeeklyBonus';
@@ -89,14 +88,40 @@ export default function WorkoutHistoryScreen({userId}) {
   const [todayKey, setTodayKey] = useState(() => getDateKey(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => getDateKey(new Date()));
 
-  useFocusEffect(
+useFocusEffect(
     useCallback(() => {
       setTodayKey(getDateKey(new Date()));
     }, []),
   );
 
-  const {exerciseCoefficients, loadingExercises} = useExercises();
-  const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
+  // Верхняя граница календаря — конец ТЕКУЩЕГО года (см. пояснение в
+  // utils/date.js). Пересчитывается на каждый рендер — это дешёвая
+  // операция с датой, не запрос к базе.
+  const historyMaxDateKey = getHistoryMaxDateKey();
+
+  // Границы в виде "начало месяца" (YYYY-MM-01) — чтобы сравнивать с
+  // видимым в календаре месяцем как обычные строки (для такого
+  // формата лексикографическое сравнение совпадает с хронологическим).
+  const minMonthKey = HISTORY_MIN_DATE_KEY; // уже "2026-06-01"
+  const maxMonthKey = getStartOfMonthKey(parseDateKey(historyMaxDateKey));
+
+  // Какой месяц сейчас показан в календаре. Именно от этого значения
+  // считаем, гасить стрелки "назад"/"вперёд" или нет — а не полагаемся
+  // только на minDate/maxDate ниже (те не всегда блокируют стрелки).
+  const [visibleMonthKey, setVisibleMonthKey] = useState(() =>
+    getStartOfMonthKey(new Date()),
+  );
+
+  // Календарь сам сообщает о перелистывании через onMonthChange —
+  // держим visibleMonthKey в актуальном состоянии, чтобы флаги
+  // disableArrowLeft/disableArrowRight ниже всегда считались от
+  // реального текущего месяца, а не от того, что было при открытии
+  // экрана.
+  const handleMonthChange = month => {
+    setVisibleMonthKey(getStartOfMonthKey(parseDateKey(month.dateString)));
+  };
+
+  const {exerciseCoefficients, loadingExercises} = useExercises();  const {bonusModalVisible, bonusPoints, closeBonusModal} = useWeeklyBonus(userId, days);
 
   // userId приходит готовым пропом из App.js (см. пояснение в
   // WorkoutLogScreen.js) — здесь достаточно просто подписаться на дни
@@ -193,11 +218,17 @@ export default function WorkoutHistoryScreen({userId}) {
         {/* Календарь — в отдельной скруглённой карточке, как остальные
             функциональные блоки в приложении, а не просто на голом фоне */}
         <View style={styles.calendarCard}>
-          <Calendar
+<Calendar
+            current={visibleMonthKey}
+            onMonthChange={handleMonthChange}
             markedDates={marked}
             markingType="custom"
             onDayPress={handleDayPress}
             firstDay={1}
+            minDate={HISTORY_MIN_DATE_KEY}
+            maxDate={historyMaxDateKey}
+            disableArrowLeft={visibleMonthKey <= minMonthKey}
+            disableArrowRight={visibleMonthKey >= maxMonthKey}
             theme={{
               backgroundColor: colors.surface,
               calendarBackground: colors.surface,

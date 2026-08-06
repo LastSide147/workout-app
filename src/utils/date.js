@@ -68,3 +68,16 @@ export function isWithinCurrentWeek(dateKey) {
 
   return dateKey >= startKey && dateKey <= endKey;
 }
+// Самая ранняя дата, доступная в календаре "Истории". Раньше июня
+// 2026 приложение статистику не ведёт, поэтому листать календарь назад
+// дальше этой даты незачем — там заведомо нет и не будет данных.
+export const HISTORY_MIN_DATE_KEY = '2026-06-01';
+
+// Самая поздняя дата, доступная в календаре "Истории" — 31 декабря
+// ТЕКУЩЕГО года. Функция, а не константа: год берётся из реального
+// "сейчас" при каждом вызове, поэтому 1 января следующего года
+// ограничение само сдвинется на год вперёд, без правок кода.
+export function getHistoryMaxDateKey() {
+  const currentYear = new Date().getFullYear();
+  return getDateKey(new Date(currentYear, 11, 31));
+}

@@ -1,9 +1,9 @@
 import React, {useEffect, useState} from 'react';
-import {View, ActivityIndicator, StatusBar} from 'react-native';
+import {View, ActivityIndicator, StatusBar, AppState} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
-import {subscribeToAuthState} from './src/services/auth';
+import {subscribeToAuthState, verifyCurrentUserStillExists} from './src/services/auth';
 import {initAppCheck} from './src/services/appCheck';
 import {initCrashlytics, setCrashlyticsUser} from './src/services/crashlytics';
 import {UpdatesProvider} from './src/context/UpdatesContext';
@@ -70,6 +70,23 @@ useEffect(() => {
       setCrashlyticsUser(newUser ? newUser.uid : null);
     });
     return unsubscribe;
+  }, []);
+
+  // Если аккаунт удалили с ДРУГОГО устройства (или через веб-страницу
+  // удаления), это устройство узнаёт об этом не мгновенно — токен входа
+  // остаётся закэширован локально до часа. Чтобы не показывать профиль
+  // уже несуществующего аккаунта всё это время, при каждом возврате
+  // приложения на передний план дополнительно спрашиваем у сервера
+  // "этот пользователь ещё существует?" (verifyCurrentUserStillExists).
+  // Если нет — она сама вызовет signOut(), а onAuthStateChanged выше
+  // сработает с null и покажет экран входа.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        verifyCurrentUserStillExists();
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   const handleVerified = () => {

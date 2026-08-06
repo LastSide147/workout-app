@@ -27,6 +27,8 @@ import SearchableListPickerModal from '../components/SearchableListPickerModal';
 import colors from '../theme/colors';
 import typography from '../theme/typography';
 import packageJson from '../../package.json';
+import DeleteAccountModal from '../components/DeleteAccountModal';
+
 
 const BIRTH_YEAR_OPTIONS = getBirthYearOptions();
 // Страны не меняются во время работы экрана (в отличие от списка
@@ -211,6 +213,9 @@ setSavingDemographics(true);
   // заметное время — читает всю историю рейтингов пользователя).
   const [rebuilding, setRebuilding] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
+  // Модалка подтверждения удаления аккаунта — открывается по кнопке
+  // "Удалить аккаунт" ниже в разметке.
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const handleLogout = () => {
     Alert.alert('Выйти из аккаунта', 'Вы уверены?', [
       {text: 'Отмена', style: 'cancel'},
@@ -466,6 +471,14 @@ style={styles.locationButton}
           </View>
         ) : null}
 
+        {/* Удаление аккаунта — сам запрос пароля и подтверждение живут
+            в DeleteAccountModal ниже, тут только кнопка-триггер. */}
+        <TouchableOpacity
+          onPress={() => setDeleteModalVisible(true)}
+          testID="profile-delete-account-button">
+          <Text style={styles.deleteAccountText}>Удалить аккаунт</Text>
+        </TouchableOpacity>
+
       </View>
 
       {/* Нижняя строка экрана: версия по центру, значок "ⓘ" (тот же
@@ -501,6 +514,21 @@ style={styles.locationButton}
         onRequestClose={() => setLicensesVisible(false)}>
         <LicensesScreen onClose={() => setLicensesVisible(false)} />
       </Modal>
+
+      {/* Не через RN <Modal> — DeleteAccountModal сам рисует затемнение
+          на весь экран (position: absolute), когда visible === true, и
+          ничего не рендерит, когда false. */}
+      <DeleteAccountModal
+        visible={deleteModalVisible}
+        onClose={() => setDeleteModalVisible(false)}
+        onDeleted={() => {
+          setDeleteModalVisible(false);
+          // Дальше ничего делать не нужно: App.js подписан на
+          // subscribeToAuthState (см. src/services/auth.js) и сам
+          // покажет экран входа, как только увидит, что пользователя
+          // больше нет — после user.delete() внутри deleteAccountAndData.
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -644,5 +672,12 @@ updateButtonText: {...typography.button, fontSize: 15, color: colors.white},
     fontSize: 12,
     color: colors.textPlaceholder,
     textAlign: 'center',
+  },
+  deleteAccountText: {
+    ...typography.button,
+    fontSize: 14,
+    color: colors.danger,
+    textAlign: 'center',
+    marginTop: 24,
   },
 });

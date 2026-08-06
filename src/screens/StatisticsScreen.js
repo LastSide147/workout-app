@@ -536,7 +536,7 @@ export default function StatisticsScreen({userId}) {
     }, []),
   );
 
-  const [personalPeriod, setPersonalPeriod] = useState('week');
+  const [personalPeriod, setPersonalPeriod] = useState('day');
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('day');
   const [leaderboardExercise, setLeaderboardExercise] = useState(ALL_EXERCISES_OPTION);
 

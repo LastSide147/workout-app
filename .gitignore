@@ -33,6 +33,9 @@ local.properties
 .cxx/
 *.keystore
 !debug.keystore
+
+# Боевой ключ подписи релиза и пароли к нему — см. android/keystore.properties.example
+android/keystore.properties
 .kotlin/
 
 # node.js
